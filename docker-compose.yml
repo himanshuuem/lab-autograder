@@ -1,0 +1,116 @@
+# Lab Grader: docker compose up -d   (see README; `make up` does everything)
+name: autograder
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  db:
+    <<: *restart
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: grader
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run make init}
+      POSTGRES_DB: grader
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U grader -d grader"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  # The only service that can start containers. It runs student code in
+  # throw-away runner containers (no network, read-only, limited memory/CPU).
+  sandbox:
+    <<: *restart
+    build: ./sandbox
+    image: autograder/sandbox:latest
+    environment:
+      SANDBOX_BACKEND: docker
+      SANDBOX_TOKEN: ${SANDBOX_TOKEN:?run make init}
+      SANDBOX_MAX_CONCURRENT: ${SANDBOX_MAX_CONCURRENT:-4}
+      RUNNER_IMAGE_PYTHON: autograder/runner-python:latest
+      RUNNER_IMAGE_C: autograder/runner-gcc:latest
+      RUNNER_IMAGE_CPP: autograder/runner-gcc:latest
+      RUNNER_IMAGE_JAVA: autograder/runner-java:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+
+  mcp:
+    <<: *restart
+    build: ./mcp_server
+    image: autograder/classroom-mcp:latest
+    user: "${HOST_UID:-10002}:${HOST_GID:-10002}"   # can read your secrets/token.json
+    environment:
+      CLASSROOM_MODE: ${CLASSROOM_MODE:-demo}
+      MCP_TOKEN: ${MCP_TOKEN:?run make init}
+      GOOGLE_TOKEN_FILE: /secrets/token.json
+    volumes:
+      - ${SECRETS_DIR:-./secrets}:/secrets
+
+  app:
+    <<: *restart
+    build:
+      context: .
+      dockerfile: app/Dockerfile
+    image: autograder/app:latest
+    environment:
+      DATABASE_URL: postgresql+psycopg://grader:${POSTGRES_PASSWORD}@db:5432/grader
+      MCP_URL: http://mcp:8200/mcp
+      MCP_TOKEN: ${MCP_TOKEN}
+      SANDBOX_URL: http://sandbox:8100
+      SANDBOX_TOKEN: ${SANDBOX_TOKEN}
+      ADMIN_USER: ${ADMIN_USER:-ta}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?run make init}
+      SECRET_KEY: ${SECRET_KEY:?run make init}
+      GRADING_WORKERS: ${GRADING_WORKERS:-4}
+      COOKIE_SECURE: ${COOKIE_SECURE:-0}
+    ports:
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-8000}:8000"
+    volumes:
+      - appdata:/data
+    depends_on:
+      db: {condition: service_healthy}
+      sandbox: {condition: service_healthy}
+      mcp: {condition: service_healthy}
+
+  # ---- runner images: built, never run (docker compose --profile images build)
+  runner-python:
+    profiles: ["images"]
+    build: ./runners/python
+    image: autograder/runner-python:latest
+    command: ["true"]
+  runner-gcc:
+    profiles: ["images"]
+    build: ./runners/gcc
+    image: autograder/runner-gcc:latest
+    command: ["true"]
+  runner-java:
+    profiles: ["images"]
+    build: ./runners/java
+    image: autograder/runner-java:latest
+    command: ["true"]
+
+  # ---- CI (docker compose --profile ci up -d jenkins)
+  jenkins:
+    <<: *restart
+    profiles: ["ci"]
+    build: ./jenkins
+    image: autograder/jenkins:latest
+    user: root   # needs the Docker socket
+    environment:
+      JENKINS_ADMIN_USER: ${JENKINS_ADMIN_USER:-admin}
+      JENKINS_ADMIN_PASSWORD: ${JENKINS_ADMIN_PASSWORD:?run make init}
+      JENKINS_URL: http://localhost:${JENKINS_PORT:-8081}/
+    ports:
+      - "${APP_BIND:-127.0.0.1}:${JENKINS_PORT:-8081}:8080"
+    volumes:
+      - jenkins_home:/var/jenkins_home
+      - /var/run/docker.sock:/var/run/docker.sock
+      - .:/repo:ro
+
+volumes:
+  pgdata:
+  appdata:
+  jenkins_home:

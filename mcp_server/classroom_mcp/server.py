@@ -1,0 +1,117 @@
+"""Google Classroom MCP server (streamable HTTP at /mcp).
+
+CLASSROOM_MODE=google  real Classroom + Drive (needs token.json)
+CLASSROOM_MODE=demo    built-in sample course (default)
+"""
+from __future__ import annotations
+
+import base64
+import logging
+import os
+import secrets
+
+from mcp.server.fastmcp import FastMCP
+from mcp.server.transport_security import TransportSecuritySettings
+from starlette.requests import Request
+from starlette.responses import JSONResponse
+
+from .provider import Provider, ProviderError
+
+log = logging.getLogger("classroom.mcp")
+
+
+def make_provider() -> Provider:
+    mode = os.environ.get("CLASSROOM_MODE", "demo").lower()
+    if mode == "google":
+        from .google_provider import GoogleProvider
+        return GoogleProvider()
+    from .demo_provider import DemoProvider
+    return DemoProvider()
+
+
+def build_server(provider: Provider) -> FastMCP:
+    mcp = FastMCP(
+        "google-classroom",
+        instructions="Read Google Classroom courses, assignments and student submissions, "
+                     "download submitted files, and record grades.",
+        stateless_http=True,
+        json_response=True,
+        # only reachable on the private compose network; Host is "mcp:8200" there
+        transport_security=TransportSecuritySettings(enable_dns_rebinding_protection=False),
+    )
+
+    def guard(fn, *a):
+        try:
+            return fn(*a)
+        except ProviderError as e:
+            raise ValueError(str(e)) from e
+
+    @mcp.tool()
+    def list_courses() -> dict:
+        """Active courses where the signed-in user is a teacher."""
+        return {"courses": guard(provider.list_courses)}
+
+    @mcp.tool()
+    def list_coursework(course_id: str) -> dict:
+        """Assignments in a course, with their attached material files."""
+        return {"coursework": guard(provider.list_coursework, course_id)}
+
+    @mcp.tool()
+    def list_submissions(course_id: str, coursework_id: str) -> dict:
+        """Every student's submission for an assignment, with attached files."""
+        return {"submissions": guard(provider.list_submissions, course_id, coursework_id)}
+
+    @mcp.tool()
+    def download_file(file_id: str) -> dict:
+        """Download a Drive file (Google Docs are exported as PDF). Returns base64 data."""
+        f = guard(provider.download_file, file_id)
+        return {"file_id": f["file_id"], "title": f["title"], "mime": f["mime"],
+                "size": len(f["data"]), "data_b64": base64.b64encode(f["data"]).decode()}
+
+    @mcp.tool()
+    def set_grade(course_id: str, coursework_id: str, submission_id: str,
+                  grade: float, assign: bool = False) -> dict:
+        """Set the draft grade; with assign=true also set the assigned (returned) grade."""
+        return guard(provider.set_grade, course_id, coursework_id, submission_id, grade, assign)
+
+    @mcp.tool()
+    def server_info() -> dict:
+        """Which provider is active (demo or google)."""
+        return {"mode": provider.mode}
+
+    @mcp.custom_route("/health", methods=["GET"])
+    async def health(request: Request):
+        return JSONResponse({"ok": True, "mode": provider.mode})
+
+    return mcp
+
+
+class BearerAuth:
+    """Require `Authorization: Bearer <MCP_TOKEN>` on everything except /health."""
+
+    def __init__(self, app, token: str):
+        self.app, self.token = app, token
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and self.token and scope.get("path") != "/health":
+            headers = dict(scope.get("headers") or [])
+            got = headers.get(b"authorization", b"").decode()
+            if not secrets.compare_digest(got, f"Bearer {self.token}"):
+                await JSONResponse({"error": "unauthorized"}, status_code=401)(scope, receive, send)
+                return
+        await self.app(scope, receive, send)
+
+
+def create_app(provider: Provider | None = None):
+    mcp = build_server(provider or make_provider())
+    return BearerAuth(mcp.streamable_http_app(), os.environ.get("MCP_TOKEN", ""))
+
+
+def main():
+    import uvicorn
+    logging.basicConfig(level=logging.INFO)
+    uvicorn.run(create_app(), host="0.0.0.0", port=int(os.environ.get("PORT", "8200")))
+
+
+if __name__ == "__main__":
+    main()

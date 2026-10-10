@@ -1,0 +1,17 @@
+jenkins:
+  systemMessage: "Lab Grader CI. Jobs are defined in jenkins/jobs.groovy; pipelines are read from the mounted repository at startup."
+  numExecutors: 2
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "${JENKINS_ADMIN_USER:-admin}"
+          password: "${JENKINS_ADMIN_PASSWORD}"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+unclassified:
+  location:
+    url: "${JENKINS_URL:-http://localhost:8081/}"
+jobs:
+  - file: /usr/share/jenkins/jobs.groovy

@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lab Grader</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='3' fill='%235b5bd6'/><path d='M4 8.5l2.5 2.5L12 5' stroke='white' stroke-width='2' fill='none'/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+  <div class="glow" aria-hidden="true"><i></i><i></i><i></i></div>
+  <div id="login" class="login hidden">
+    <form class="sheet" id="login-form">
+      <h1><span class="brand"><span class="tick" aria-hidden="true">✓</span></span>Lab Grader</h1>
+      <p class="muted small">Sign in to grade your Classroom assignments.</p>
+      <label class="field"><span>Username</span><input type="text" name="username" autocomplete="username" required></label>
+      <label class="field"><span>Password</span><input type="password" name="password" autocomplete="current-password" required></label>
+      <div class="err" id="login-err" role="alert"></div>
+      <button class="btn primary" type="submit" style="width:100%">Sign in</button>
+    </form>
+  </div>
+
+  <div id="app" class="shell hidden">
+    <aside class="side">
+      <div class="brand"><a href="#/" style="color:inherit"><span class="tick" aria-hidden="true">✓</span><b>Lab Grader</b></a></div>
+      <div style="padding:12px 16px 0"><button class="btn small" id="sync" style="width:100%">Refresh from Classroom</button></div>
+      <nav class="courses" id="courses" aria-label="Courses and assignments"></nav>
+      <div class="side-foot">
+        <a href="#/status" id="svc" class="muted"><span class="dot"></span>Checking services</a>
+        <div style="margin-top:6px"><a href="#" id="logout" class="muted small">Sign out</a></div>
+      </div>
+    </aside>
+    <main class="main" id="view" tabindex="-1"></main>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

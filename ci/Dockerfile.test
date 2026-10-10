@@ -1,0 +1,19 @@
+# Everything needed to run every test suite: compilers, JDK, Tesseract, Python deps.
+FROM python:3.12-slim
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      gcc g++ default-jdk-headless tesseract-ocr tesseract-ocr-eng fonts-dejavu-core \
+      libreoffice-writer-nogui fonts-liberation fonts-crosextra-carlito \
+    && rm -rf /var/lib/apt/lists/*
+# PowerPoint and Excel submissions (a separate layer so the one above stays cached)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      libreoffice-impress-nogui libreoffice-calc-nogui \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /src
+COPY app/requirements.txt req-app.txt
+COPY sandbox/requirements.txt req-sandbox.txt
+COPY mcp_server/requirements.txt req-mcp.txt
+RUN pip install --no-cache-dir -r req-app.txt -r req-sandbox.txt -r req-mcp.txt pytest reportlab python-docx
+COPY . .
+RUN pip install --no-cache-dir ./packages/docextract
+ENV ALLOW_UNSAFE_LOCAL_BACKEND=1
+CMD ["bash", "scripts/run_tests.sh"]
