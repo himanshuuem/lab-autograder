@@ -136,3 +136,13 @@ def test_status(client):
     login(client)
     s = client.get("/api/status").json()
     assert s["classroom"]["ok"] and s["sandbox"]["ok"]
+
+
+def test_browsers_always_check_for_a_newer_dashboard(client):
+    """After an update the page and its script must change together: a browser that kept an
+    old app.js next to a new index.html showed an empty sign-in card."""
+    for path in ("/", "/static/app.js", "/static/app.css"):
+        r = client.get(path)
+        assert r.status_code == 200 and "no-cache" in r.headers.get("cache-control", ""), path
+    etag = client.get("/static/app.js").headers["etag"]
+    assert client.get("/static/app.js", headers={"If-None-Match": etag}).status_code == 304   # still cheap

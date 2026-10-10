@@ -17,6 +17,16 @@ from .worker import Worker
 STATIC = Path(__file__).resolve().parent.parent / "static"
 
 
+class Revalidated(StaticFiles):
+    """The dashboard's files, re-checked on every load (a cheap 304 when unchanged), so an
+    update never leaves a browser running an old app.js against a new index.html."""
+
+    async def get_response(self, path, scope):
+        r = await super().get_response(path, scope)
+        r.headers["Cache-Control"] = "no-cache"
+        return r
+
+
 def create_app(start_worker: bool | None = None) -> FastAPI:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     os.makedirs(settings.data_dir, exist_ok=True)
@@ -36,7 +46,7 @@ def create_app(start_worker: bool | None = None) -> FastAPI:
     app.include_router(api.public)
     app.include_router(api.api)
     app.include_router(api.admin)
-    app.mount("/static", StaticFiles(directory=STATIC), name="static")
+    app.mount("/static", Revalidated(directory=STATIC), name="static")
 
     @app.get("/", include_in_schema=False)
     def index():
