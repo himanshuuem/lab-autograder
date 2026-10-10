@@ -146,3 +146,19 @@ def test_browsers_always_check_for_a_newer_dashboard(client):
         assert r.status_code == 200 and "no-cache" in r.headers.get("cache-control", ""), path
     etag = client.get("/static/app.js").headers["etag"]
     assert client.get("/static/app.js", headers={"If-None-Match": etag}).status_code == 304   # still cheap
+
+
+def test_classroom_errors_say_what_google_said(monkeypatch):
+    """A tool error comes back wrapped in the MCP client's task groups; the teacher must see
+    Google's reason (an API switched off), not "cannot reach the Classroom MCP server"."""
+    from autograder.clients import ClassroomClient, ServiceError
+
+    async def failing(self, tool, args):
+        try:
+            raise ServiceError("Classroom: Google Classroom API has not been used in project 3677 before or it is disabled")
+        except ServiceError as e:
+            raise BaseExceptionGroup("unhandled errors in a TaskGroup", [ExceptionGroup("inner", [e])])
+    monkeypatch.setattr(ClassroomClient, "_call", failing)
+    with pytest.raises(ServiceError) as err:
+        ClassroomClient(url="http://mcp", token="t").courses()
+    assert "has not been used in project" in str(err.value) and "cannot reach" not in str(err.value)

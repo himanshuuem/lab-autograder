@@ -28,6 +28,21 @@ async def _mcp_streams(url: str, headers: dict):
             yield streams
 
 
+def _find(g: BaseException, kind):
+    if isinstance(g, kind):
+        return g
+    for e in getattr(g, "exceptions", ()):
+        if (hit := _find(e, kind)) is not None:
+            return hit
+    return None
+
+
+def _first(g: BaseException) -> BaseException:
+    while getattr(g, "exceptions", None):
+        g = g.exceptions[0]
+    return g
+
+
 class ClassroomClient:
     """Synchronous wrapper: each call opens a short MCP session."""
 
@@ -57,6 +72,13 @@ class ClassroomClient:
             return asyncio.run(self._call(tool, args))
         except ServiceError:
             raise
+        except BaseExceptionGroup as g:
+            # the MCP client's task groups wrap the tool's own error: say what Google said
+            inner = _find(g, ServiceError)
+            if inner is not None:
+                raise inner from None
+            raise ServiceError(f"cannot reach the Classroom MCP server at {self.url}: "
+                               f"{_first(g).__class__.__name__}: {_first(g)}") from g
         except Exception as e:
             raise ServiceError(f"cannot reach the Classroom MCP server at {self.url}: "
                                f"{e.__class__.__name__}: {e}") from e
