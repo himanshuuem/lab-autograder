@@ -95,7 +95,7 @@ def ser_user(u: User) -> dict:
 def auth_config():
     """What the sign-in page offers."""
     return {"google": settings.google_login, "local": settings.local_login or not settings.google_login,
-            "domain": settings.allowed_domain}
+            "domain": " or ".join(settings.allowed_domains)}
 
 
 class Login(BaseModel):

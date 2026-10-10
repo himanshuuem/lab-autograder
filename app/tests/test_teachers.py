@@ -22,7 +22,7 @@ def google(app_env, monkeypatch):
     """Google sign-in set up for college.ac.in; Google's token endpoint faked."""
     from autograder import auth, config
     s = config.settings
-    for k, v in {"google_client_id": "cid", "google_client_secret": "csecret", "allowed_domain": "college.ac.in",
+    for k, v in {"google_client_id": "cid", "google_client_secret": "csecret", "allowed_domains": ["college.ac.in"],
                  "admin_emails": [ADMIN], "signup": "approve", "local_login": True,
                  "public_url": "https://grader.college.ac.in"}.items():
         monkeypatch.setattr(s, k, v)
@@ -211,3 +211,23 @@ def test_local_form_can_be_switched_off(app, monkeypatch):
     with browser(app) as c:
         assert c.get("/api/auth/config").json()["local"] is False
         assert c.post("/api/login", json={"username": "ta", "password": "pw"}).status_code == 403
+
+
+def test_faculty_and_student_domains_together(app, monkeypatch):
+    """IIEST: faculty on iiests.ac.in, TAs on students.iiests.ac.in, one Workspace."""
+    from autograder import config
+    monkeypatch.setattr(config.settings, "allowed_domains", ["iiests.ac.in", "students.iiests.ac.in"])
+    with browser(app) as c:
+        assert c.get("/api/auth/config").json()["domain"] == "iiests.ac.in or students.iiests.ac.in"
+        q = parse_qs(urlparse(c.get("/api/auth/google", follow_redirects=False).headers["location"]).query)
+        assert q["hd"] == ["*"]                       # any college account; checked again on the way back
+        for email in ("prof@iiests.ac.in", "2025itm001.ta@students.iiests.ac.in"):
+            assert "signin-error" not in sign_in(c, email).headers["location"], email
+        assert "signin-error" in sign_in(c, "x@notiiests.ac.in").headers["location"]
+        assert "signin-error" in sign_in(c, "x@gmail.com").headers["location"]
+
+
+def test_allowed_domains_from_env(monkeypatch):
+    from autograder.config import Settings
+    monkeypatch.setenv("ALLOWED_DOMAIN", "@IIESTS.ac.in, students.iiests.ac.in")
+    assert Settings().allowed_domains == ["iiests.ac.in", "students.iiests.ac.in"]

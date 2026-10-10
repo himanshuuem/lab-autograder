@@ -68,8 +68,9 @@ def auth_url(state: str) -> str:
     q = {"client_id": settings.google_client_id, "redirect_uri": redirect_uri(), "response_type": "code",
          "scope": " ".join(SCOPES), "access_type": "offline", "include_granted_scopes": "true",
          "prompt": "consent select_account", "state": state}
-    if settings.allowed_domain:
-        q["hd"] = settings.allowed_domain          # Google shows only college accounts
+    if settings.allowed_domains:
+        # Google offers only college accounts ("*": any Workspace account; checked on return)
+        q["hd"] = settings.allowed_domains[0] if len(settings.allowed_domains) == 1 else "*"
     return f"{AUTH_URL}?{urlencode(q)}"
 
 
@@ -107,8 +108,8 @@ def sign_in_with_google(db, claims: dict, tokens: dict) -> User:
     if not email or not claims.get("email_verified", False):
         raise SignInError("Google didn't confirm the email address")
     domain = email.rsplit("@", 1)[-1]
-    if settings.allowed_domain and domain != settings.allowed_domain and email not in settings.admin_emails:
-        raise SignInError(f"Sign in with your @{settings.allowed_domain} account")
+    if settings.allowed_domains and domain not in settings.allowed_domains and email not in settings.admin_emails:
+        raise SignInError("Sign in with your " + " or ".join("@" + d for d in settings.allowed_domains) + " account")
     granted = set((tokens.get("scope") or "").split())
     missing = [s.rsplit("/", 1)[-1] for s in SCOPES[3:] if granted and s not in granted]
     if missing:

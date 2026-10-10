@@ -26,7 +26,9 @@ class Settings:
     google_client_id: str = field(default_factory=lambda: _env("GOOGLE_CLIENT_ID"))
     google_client_secret: str = field(default_factory=lambda: _env("GOOGLE_CLIENT_SECRET"))
     public_url: str = field(default_factory=lambda: _env("PUBLIC_URL", "http://localhost:8000").rstrip("/"))
-    allowed_domain: str = field(default_factory=lambda: _env("ALLOWED_DOMAIN").lower().lstrip("@"))
+    # one or more, comma-separated: iiests.ac.in,students.iiests.ac.in
+    allowed_domains: list = field(default_factory=lambda: [d.strip().lower().lstrip("@")
+                                                           for d in _env("ALLOWED_DOMAIN").split(",") if d.strip()])
     admin_emails: list = field(default_factory=lambda: [e.strip().lower() for e in _env("ADMIN_EMAILS").split(",")
                                                          if e.strip()])
     # approve: a new teacher waits until an admin lets them in; open: anyone from the domain
