@@ -6,18 +6,18 @@ import secrets
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
 
-from . import grading
-from .clients import ClassroomClient, SandboxClient, ServiceError
+from . import auth, grading
+from .clients import SandboxClient, ServiceError
 from .config import settings
 from .db import SessionLocal
 from .evaluate import MODES
 from .models import (Assignment, Course, Job, ProgramResult, Question, SimilarityPair, Submission,
-                     TestCase)
+                     TestCase, User)
 
 COOKIE = "ag_session"
 MAX_AGE = 12 * 3600
@@ -43,39 +43,114 @@ def _signer():
     return URLSafeTimedSerializer(settings.secret_key, salt="session")
 
 
-def require_user(request: Request) -> str:
+def signed_in(request: Request, db=DB) -> User:
+    """The signed-in teacher, whatever their status (a pending one may only see /me)."""
     tok = request.cookies.get(COOKIE)
     if not tok:
         raise HTTPException(401, "Sign in to continue")
     try:
-        return _signer().loads(tok, max_age=MAX_AGE)["u"]
+        uid = _signer().loads(tok, max_age=MAX_AGE).get("uid")
     except (BadSignature, SignatureExpired):
         raise HTTPException(401, "Your session expired. Sign in again.")
+    user = db.get(User, uid) if uid else None
+    if user is None or user.status == "disabled":
+        raise HTTPException(401, "Sign in to continue")
+    return user
 
 
+def require_user(user: User = Depends(signed_in)) -> User:
+    if user.status != "active":
+        raise HTTPException(403, "An admin has to approve your account first")
+    return user
+
+
+def require_admin(user: User = Depends(require_user)) -> User:
+    if not user.is_admin:
+        raise HTTPException(403, "Only an admin can do that")
+    return user
+
+
+USER = Depends(require_user)
 public = APIRouter(prefix="/api")
-api = APIRouter(prefix="/api", dependencies=[Depends(require_user)])
+api = APIRouter(prefix="/api", dependencies=[USER])
+admin = APIRouter(prefix="/api/admin", dependencies=[Depends(require_admin)])
 
 # clients are module attributes so tests can swap them
-classroom_client = ClassroomClient
+classroom_client = auth.classroom_for          # (user, course=None) -> that teacher's Classroom
 sandbox_client = SandboxClient
 
 
 # ---------------------------------------------------------------- auth
+def _start_session(response: Response, user: User) -> None:
+    response.set_cookie(COOKIE, _signer().dumps({"uid": user.id}), max_age=MAX_AGE,
+                        httponly=True, samesite="lax", secure=settings.cookie_secure)
+
+
+def ser_user(u: User) -> dict:
+    return {"id": u.id, "email": u.email, "name": u.name, "picture": u.picture, "role": u.role,
+            "status": u.status, "google": bool(u.google_token)}
+
+
+@public.get("/auth/config")
+def auth_config():
+    """What the sign-in page offers."""
+    return {"google": settings.google_login, "local": settings.local_login or not settings.google_login,
+            "domain": settings.allowed_domain}
+
+
 class Login(BaseModel):
     username: str
     password: str
 
 
 @public.post("/login")
-def login(body: Login, response: Response):
+def login(body: Login, response: Response, db=DB):
+    if not (settings.local_login or not settings.google_login):
+        raise HTTPException(403, "Sign in with Google")
     ok = (secrets.compare_digest(body.username, settings.admin_user)
           and secrets.compare_digest(body.password, settings.admin_password))
     if not ok:
         raise HTTPException(401, "Wrong username or password")
-    response.set_cookie(COOKIE, _signer().dumps({"u": body.username}), max_age=MAX_AGE,
-                        httponly=True, samesite="strict", secure=settings.cookie_secure)
-    return {"user": body.username}
+    user = auth.local_admin(db)
+    _start_session(response, user)
+    return ser_user(user)
+
+
+STATE = "ag_oauth_state"
+
+
+@public.get("/auth/google")
+def google_start():
+    if not settings.google_login:
+        raise HTTPException(404, "Google sign-in isn't set up (GOOGLE_CLIENT_ID in .env)")
+    state = secrets.token_urlsafe(24)
+    r = RedirectResponse(auth.auth_url(state), status_code=302)
+    # lax: the browser must send it back when Google redirects here
+    r.set_cookie(STATE, state, max_age=600, httponly=True, samesite="lax", secure=settings.cookie_secure)
+    return r
+
+
+@public.get("/auth/google/callback")
+def google_callback(request: Request, db=DB, code: str = "", state: str = "", error: str = ""):
+    def back(msg: str = ""):
+        from urllib.parse import quote
+        r = RedirectResponse("/" + (f"#/signin-error/{quote(msg)}" if msg else ""), status_code=302)
+        r.delete_cookie(STATE)
+        return r
+    if error:
+        return back("Google sign-in was cancelled")
+    if not state or not secrets.compare_digest(state, request.cookies.get(STATE, "")):
+        return back("The sign-in took too long or came from another tab. Try again.")
+    try:
+        claims, tokens = auth.exchange_code(code)
+        user = auth.sign_in_with_google(db, claims, tokens)
+    except auth.SignInError as e:
+        return back(str(e))
+    if user.status == "disabled":
+        return back("Your account has been switched off. Ask the admin.")
+    r = back()
+    _start_session(r, user)
+    return r
 
 
 @public.post("/logout")
@@ -95,16 +170,17 @@ def health(db=DB):
     return out
 
 
-@api.get("/me")
-def me(user: str = Depends(require_user)):
-    return {"user": user}
+@public.get("/me")
+def me(user: User = Depends(signed_in)):
+    user.last_seen_at = datetime.now(timezone.utc)
+    return ser_user(user)
 
 
 @api.get("/status")
-def status():
+def status(user: User = USER):
     out = {}
     try:
-        out["classroom"] = {"ok": True, **classroom_client().info()}
+        out["classroom"] = {"ok": True, **classroom_client(user).info()}
     except Exception as e:
         out["classroom"] = {"ok": False, "error": str(e)}
     try:
@@ -163,9 +239,10 @@ def ser_sub_row(s: Submission, labels: list[str]) -> dict:
 
 # ---------------------------------------------------------------- courses & assignments
 @api.get("/courses")
-def courses(db=DB):
+def courses(db=DB, user: User = USER):
+    """The courses this teacher teaches (an admin sees everyone's on the admin page)."""
     out = []
-    for c in db.scalars(select(Course).order_by(Course.name)):
+    for c in sorted(user.courses, key=lambda c: c.name):
         out.append({"id": c.id, "name": c.name, "section": c.section, "link": c.link,
                     "assignments": [{"id": a.id, "title": a.title, "due": a.due,
                                      "graded": a.last_graded_at is not None}
@@ -174,24 +251,34 @@ def courses(db=DB):
 
 
 @api.post("/courses/sync")
-def sync(db=DB):
+def sync(db=DB, user: User = USER):
     try:
-        n = grading.sync_courses(db, classroom_client())
+        n = grading.sync_courses(db, classroom_client(user), user)
     except ServiceError as e:
         raise HTTPException(502, str(e))
     return {"courses": n}
 
 
-def _assignment(db, aid) -> Assignment:
+def can_see(user: User, course: Course) -> bool:
+    return user.is_admin or user in course.teachers
+
+
+def _assignment(db, aid, user: User) -> Assignment:
     a = db.get(Assignment, aid)
-    if not a:
+    if not a or not can_see(user, a.course):     # someone else's: as if it didn't exist
         raise HTTPException(404, "Assignment not found")
     return a
 
 
+def _owned(obj, assignment: Assignment | None, user: User, what: str):
+    if obj is None or assignment is None or not can_see(user, assignment.course):
+        raise HTTPException(404, f"{what} not found")
+    return obj
+
+
 @api.get("/assignments/{aid}")
-def assignment(aid: int, db=DB):
-    a = _assignment(db, aid)
+def assignment(aid: int, db=DB, user: User = USER):
+    a = _assignment(db, aid, user)
     job = db.scalar(select(Job).where(Job.assignment_id == aid).order_by(Job.id.desc()).limit(1))
     scores = [s.final_score for s in a.submissions if s.final_score is not None and s.status != "NO_SUBMISSION"]
     return {**ser_assignment(a, db), "course": {"id": a.course.id, "name": a.course.name},
@@ -208,8 +295,8 @@ class AssignmentPatch(BaseModel):
 
 
 @api.patch("/assignments/{aid}")
-def patch_assignment(aid: int, body: AssignmentPatch, db=DB):
-    a = _assignment(db, aid)
+def patch_assignment(aid: int, body: AssignmentPatch, db=DB, user: User = USER):
+    a = _assignment(db, aid, user)
     data = body.model_dump(exclude_none=True)
     if "compare_mode" in data and data["compare_mode"] not in MODES:
         raise HTTPException(400, f"compare_mode must be one of {MODES}")
@@ -219,10 +306,10 @@ def patch_assignment(aid: int, body: AssignmentPatch, db=DB):
 
 
 @api.post("/assignments/{aid}/import-tests")
-def import_tests(aid: int, db=DB):
-    a = _assignment(db, aid)
+def import_tests(aid: int, db=DB, user: User = USER):
+    a = _assignment(db, aid, user)
     try:
-        return grading.import_tests(db, classroom_client(), a)
+        return grading.import_tests(db, classroom_client(user, a.course), a)
     except ServiceError as e:
         raise HTTPException(502, str(e))
 
@@ -232,10 +319,10 @@ class ChecksIn(BaseModel):
 
 
 @api.post("/assignments/{aid}/checks")
-def add_checks(aid: int, body: ChecksIn, db=DB):
+def add_checks(aid: int, body: ChecksIn, db=DB, user: User = USER):
     """Add requirement checks (see checks.py) to the assignment's questions, by label."""
     from . import checks
-    a = _assignment(db, aid)
+    a = _assignment(db, aid, user)
     try:
         n = checks.install(db, a, body.pack)
     except KeyError:
@@ -252,8 +339,8 @@ class QuestionIn(BaseModel):
 
 
 @api.post("/assignments/{aid}/questions")
-def add_question(aid: int, body: QuestionIn, db=DB):
-    a = _assignment(db, aid)
+def add_question(aid: int, body: QuestionIn, db=DB, user: User = USER):
+    a = _assignment(db, aid, user)
     if any(q.label == body.label for q in a.questions):
         raise HTTPException(409, f"Question {body.label} already exists")
     q = Question(**body.model_dump(), position=len(a.questions))
@@ -269,20 +356,18 @@ class QuestionPatch(BaseModel):
 
 
 @api.patch("/questions/{qid}")
-def patch_question(qid: int, body: QuestionPatch, db=DB):
+def patch_question(qid: int, body: QuestionPatch, db=DB, user: User = USER):
     q = db.get(Question, qid)
-    if not q:
-        raise HTTPException(404, "Question not found")
+    _owned(q, q and q.assignment, user, "Question")
     for k, v in body.model_dump(exclude_none=True).items():
         setattr(q, k, v)
     return ser_question(q)
 
 
 @api.delete("/questions/{qid}")
-def delete_question(qid: int, db=DB):
+def delete_question(qid: int, db=DB, user: User = USER):
     q = db.get(Question, qid)
-    if not q:
-        raise HTTPException(404, "Question not found")
+    _owned(q, q and q.assignment, user, "Question")
     db.delete(q)
     return {"ok": True}
 
@@ -295,10 +380,9 @@ class TestIn(BaseModel):
 
 
 @api.post("/questions/{qid}/tests")
-def add_test(qid: int, body: TestIn, db=DB):
+def add_test(qid: int, body: TestIn, db=DB, user: User = USER):
     q = db.get(Question, qid)
-    if not q:
-        raise HTTPException(404, "Question not found")
+    _owned(q, q and q.assignment, user, "Question")
     t = TestCase(**body.model_dump(), source="manual", position=len(q.tests))
     q.tests.append(t)
     db.flush()
@@ -313,10 +397,9 @@ class TestPatch(BaseModel):
 
 
 @api.patch("/tests/{tid}")
-def patch_test(tid: int, body: TestPatch, db=DB):
+def patch_test(tid: int, body: TestPatch, db=DB, user: User = USER):
     t = db.get(TestCase, tid)
-    if not t:
-        raise HTTPException(404, "Test not found")
+    _owned(t, t and t.question.assignment, user, "Test")
     for k, v in body.model_dump(exclude_none=True).items():
         setattr(t, k, v)
     t.source = "manual"
@@ -324,10 +407,9 @@ def patch_test(tid: int, body: TestPatch, db=DB):
 
 
 @api.delete("/tests/{tid}")
-def delete_test(tid: int, db=DB):
+def delete_test(tid: int, db=DB, user: User = USER):
     t = db.get(TestCase, tid)
-    if not t:
-        raise HTTPException(404, "Test not found")
+    _owned(t, t and t.question.assignment, user, "Test")
     db.delete(t)
     return {"ok": True}
 
@@ -338,41 +420,40 @@ def _active_job(db, aid):
 
 
 @api.post("/assignments/{aid}/grade")
-def grade(aid: int, db=DB):
-    _assignment(db, aid)
+def grade(aid: int, db=DB, user: User = USER):
+    _assignment(db, aid, user)
     if j := _active_job(db, aid):
         return ser_job(j)
-    j = Job(kind="grade", assignment_id=aid, message="Waiting to start")
+    j = Job(kind="grade", assignment_id=aid, user_id=user.id, message="Waiting to start")
     db.add(j)
     db.flush()
     return ser_job(j)
 
 
 @api.post("/submissions/{sid}/regrade")
-def regrade(sid: int, db=DB):
+def regrade(sid: int, db=DB, user: User = USER):
     s = db.get(Submission, sid)
-    if not s:
-        raise HTTPException(404, "Submission not found")
+    _owned(s, s and s.assignment, user, "Submission")
     if j := _active_job(db, s.assignment_id):
         return ser_job(j)
-    j = Job(kind="grade_one", assignment_id=s.assignment_id, submission_id=sid, message="Waiting to start")
+    j = Job(kind="grade_one", assignment_id=s.assignment_id, submission_id=sid, user_id=user.id,
+            message="Waiting to start")
     db.add(j)
     db.flush()
     return ser_job(j)
 
 
 @api.get("/jobs/{jid}")
-def job(jid: int, db=DB):
+def job(jid: int, db=DB, user: User = USER):
     j = db.get(Job, jid)
-    if not j:
-        raise HTTPException(404, "Job not found")
+    _owned(j, j and db.get(Assignment, j.assignment_id), user, "Job")
     return ser_job(j)
 
 
 # ---------------------------------------------------------------- results
 @api.get("/assignments/{aid}/submissions")
-def submissions(aid: int, db=DB):
-    a = _assignment(db, aid)
+def submissions(aid: int, db=DB, user: User = USER):
+    a = _assignment(db, aid, user)
     labels = [q.label for q in a.questions] or sorted({p.question_label for s in a.submissions for p in s.programs})
     rows = [ser_sub_row(s, labels) for s in a.submissions]
     rows.sort(key=lambda r: r["student"]["name"].lower())
@@ -380,10 +461,9 @@ def submissions(aid: int, db=DB):
 
 
 @api.get("/submissions/{sid}")
-def submission(sid: int, db=DB):
+def submission(sid: int, db=DB, user: User = USER):
     s = db.get(Submission, sid)
-    if not s:
-        raise HTTPException(404, "Submission not found")
+    _owned(s, s and s.assignment, user, "Submission")
     a = s.assignment
     sims = db.scalars(select(SimilarityPair).where((SimilarityPair.sub_a_id == sid) | (SimilarityPair.sub_b_id == sid)))
     siblings = sorted(a.submissions, key=lambda x: x.student.name.lower())
@@ -421,10 +501,9 @@ class SubmissionPatch(BaseModel):
 
 
 @api.patch("/submissions/{sid}")
-def patch_submission(sid: int, body: SubmissionPatch, db=DB):
+def patch_submission(sid: int, body: SubmissionPatch, db=DB, user: User = USER):
     s = db.get(Submission, sid)
-    if not s:
-        raise HTTPException(404, "Submission not found")
+    _owned(s, s and s.assignment, user, "Submission")
     if body.clear_override:
         s.override_score = None
     elif body.override_score is not None:
@@ -439,9 +518,9 @@ def patch_submission(sid: int, body: SubmissionPatch, db=DB):
 
 
 @api.get("/submissions/{sid}/pdf")
-def submission_pdf(sid: int, db=DB):
+def submission_pdf(sid: int, db=DB, user: User = USER):
     s = db.get(Submission, sid)
-    if not s or not s.pdf_path:
+    if not s or not s.pdf_path or not can_see(user, s.assignment.course):
         raise HTTPException(404, "No PDF for this submission")
     return FileResponse(s.pdf_path, media_type="application/pdf",
                         headers={"Content-Disposition": "inline"})
@@ -449,8 +528,8 @@ def submission_pdf(sid: int, db=DB):
 
 # ---------------------------------------------------------------- similarity
 @api.get("/assignments/{aid}/similarity")
-def similarity(aid: int, db=DB):
-    _assignment(db, aid)
+def similarity(aid: int, db=DB, user: User = USER):
+    _assignment(db, aid, user)
     pairs = db.scalars(select(SimilarityPair).where(SimilarityPair.assignment_id == aid)
                        .order_by(SimilarityPair.score.desc()))
     return [{"id": p.id, "question": p.question_label, "score": p.score, "jaccard": p.jaccard,
@@ -466,10 +545,9 @@ def _code_of(sub: Submission, label: str) -> dict:
 
 
 @api.get("/similarity/{pid}")
-def similarity_pair(pid: int, db=DB):
+def similarity_pair(pid: int, db=DB, user: User = USER):
     p = db.get(SimilarityPair, pid)
-    if not p:
-        raise HTTPException(404, "Pair not found")
+    _owned(p, p and p.assignment, user, "Pair")
     return {"id": p.id, "question": p.question_label, "score": p.score, "jaccard": p.jaccard,
             "verdict": p.verdict, "low_confidence": p.low_confidence, "assignment_id": p.assignment_id,
             "a": {**_code_of(p.sub_a, p.question_label), "lines": p.lines_a},
@@ -481,12 +559,11 @@ class Verdict(BaseModel):
 
 
 @api.patch("/similarity/{pid}")
-def similarity_verdict(pid: int, body: Verdict, db=DB):
+def similarity_verdict(pid: int, body: Verdict, db=DB, user: User = USER):
     if body.verdict not in ("", "cleared", "confirmed"):
         raise HTTPException(400, "verdict must be '', 'cleared' or 'confirmed'")
     p = db.get(SimilarityPair, pid)
-    if not p:
-        raise HTTPException(404, "Pair not found")
+    _owned(p, p and p.assignment, user, "Pair")
     p.verdict = body.verdict
     grading.run_similarity(db, p.assignment)  # refresh flags
     return {"ok": True}
@@ -494,8 +571,8 @@ def similarity_verdict(pid: int, body: Verdict, db=DB):
 
 # ---------------------------------------------------------------- export & publish
 @api.get("/assignments/{aid}/export.csv")
-def export_csv(aid: int, db=DB):
-    a = _assignment(db, aid)
+def export_csv(aid: int, db=DB, user: User = USER):
+    a = _assignment(db, aid, user)
     labels = [q.label for q in a.questions]
     buf = io.StringIO()
     w = csv.writer(buf)
@@ -519,9 +596,14 @@ class Publish(BaseModel):
 
 
 @api.post("/assignments/{aid}/publish")
-def publish(aid: int, body: Publish, db=DB):
-    a = _assignment(db, aid)
-    cc = classroom_client()
+def publish(aid: int, body: Publish, db=DB, user: User = USER):
+    a = _assignment(db, aid, user)
+    if user not in a.course.teachers:
+        raise HTTPException(403, "Only a teacher of this course can publish its grades")
+    try:
+        cc = classroom_client(user, a.course)
+    except ServiceError as e:
+        raise HTTPException(502, str(e))
     results = {"published": 0, "skipped": 0, "errors": []}
     for s in a.submissions:
         if s.final_score is None or (body.only_reviewed and s.needs_review and not s.reviewed):
@@ -540,3 +622,56 @@ def publish(aid: int, body: Publish, db=DB):
                 results["errors"][-1]["student"] = "all students"
                 break
     return results
+
+
+# ---------------------------------------------------------------- admin
+@admin.get("/users")
+def admin_users(db=DB):
+    """Every teacher, newest requests first, with how much they've used the app."""
+    graded = dict(db.execute(select(Job.user_id, func.count()).where(Job.status == "done")
+                             .group_by(Job.user_id)).all())
+    users = db.scalars(select(User).order_by((User.status == "pending").desc(), User.created_at.desc())).all()
+    return [{**ser_user(u), "courses": len(u.courses), "grading_runs": graded.get(u.id, 0),
+             "created_at": u.created_at.isoformat() if u.created_at else None,
+             "last_seen_at": u.last_seen_at.isoformat() if u.last_seen_at else None,
+             "fixed_admin": u.email in settings.admin_emails or u.email.endswith("@local")} for u in users]
+
+
+class UserPatch(BaseModel):
+    status: str | None = None
+    role: str | None = None
+
+
+@admin.patch("/users/{uid}")
+def admin_patch_user(uid: int, body: UserPatch, db=DB, me: User = Depends(require_admin)):
+    u = db.get(User, uid)
+    if not u:
+        raise HTTPException(404, "No such teacher")
+    if body.status is not None:
+        if body.status not in ("active", "disabled", "pending"):
+            raise HTTPException(400, "status must be active, disabled or pending")
+        if u.id == me.id and body.status != "active":
+            raise HTTPException(400, "You can't switch off your own account")
+        u.status = body.status
+    if body.role is not None:
+        if body.role not in ("teacher", "admin"):
+            raise HTTPException(400, "role must be teacher or admin")
+        if u.id == me.id and body.role != "admin":
+            raise HTTPException(400, "You can't remove your own admin role")
+        if u.email in settings.admin_emails and body.role != "admin":
+            raise HTTPException(400, f"{u.email} is an admin in ADMIN_EMAILS (.env)")
+        u.role = body.role
+    return ser_user(u)
+
+
+@admin.get("/courses")
+def admin_courses(db=DB):
+    """Every course in the app and who teaches it."""
+    out = []
+    for c in db.scalars(select(Course).order_by(Course.name)):
+        out.append({"id": c.id, "name": c.name, "section": c.section,
+                    "teachers": [{"id": t.id, "name": t.name, "email": t.email} for t in c.teachers],
+                    "assignments": [{"id": a.id, "title": a.title, "due": a.due,
+                                     "graded": a.last_graded_at is not None}
+                                    for a in sorted(c.assignments, key=lambda a: (a.due or "", a.title), reverse=True)]})
+    return out

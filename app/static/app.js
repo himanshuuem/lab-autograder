@@ -7,7 +7,7 @@ const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "
 const fmt = (n, d = 1) => (n === null || n === undefined ? "–" : (+n).toFixed(d).replace(/\.0+$/, ""));
 const view = () => $("#view");
 
-let state = { courses: [], poll: null };
+let state = { courses: [], poll: null, me: null };
 
 // ------------------------------------------------------------------ api
 async function api(path, opts = {}) {
@@ -15,6 +15,7 @@ async function api(path, opts = {}) {
   if (init.body && typeof init.body !== "string") init.body = JSON.stringify(init.body);
   const r = await fetch("/api" + path, init);
   if (r.status === 401 && path !== "/login") { showLogin(); throw new Error("Sign in to continue"); }
+  if (r.status === 403 && state.me && state.me.status !== "active") { showPending(); throw new Error("Waiting for approval"); }
   const ct = r.headers.get("content-type") || "";
   const data = ct.includes("json") ? await r.json() : await r.text();
   if (!r.ok) {
@@ -127,10 +128,31 @@ const LANG = { python: "Python", c: "C", cpp: "C++", java: "Java" };
 const KIND = { pdf: "PDF", office: "Office document", image: "image", text: "text file", notebook: "Jupyter notebook", zip: "ZIP archive" };
 
 // ------------------------------------------------------------------ auth
-function showLogin() {
+async function showLogin(err = "") {
   $("#app").classList.add("hidden");
+  $("#pending").classList.add("hidden");
   $("#login").classList.remove("hidden");
-  $("#login-form input[name=username]").focus();
+  let cfg = { google: false, local: true, domain: "" };
+  try { cfg = await (await fetch("/api/auth/config")).json(); } catch { /* offline: show the form */ }
+  $("#google-signin").classList.toggle("hidden", !cfg.google);
+  $("#local-login").classList.toggle("hidden", !cfg.local);
+  $("#local-login").open = cfg.local && !cfg.google;
+  $("#login-lede").textContent = cfg.google
+    ? `Sign in with your ${cfg.domain ? "@" + cfg.domain : "college"} Google account to grade your Classroom assignments.`
+    : "Sign in to grade your Classroom assignments.";
+  $("#login-err").textContent = err;
+}
+function showPending() {
+  $("#app").classList.add("hidden");
+  $("#login").classList.add("hidden");
+  $("#pending").classList.remove("hidden");
+  $("#pending-email").textContent = state.me ? state.me.email : "";
+}
+async function signOut(e) {
+  e && e.preventDefault();
+  await api("/logout", { method: "POST" });
+  state.me = null;
+  showLogin();
 }
 $("#login-form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -141,7 +163,24 @@ $("#login-form").addEventListener("submit", async (e) => {
     boot();
   } catch (err) { $("#login-err").textContent = err.message; }
 });
-$("#logout").addEventListener("click", async (e) => { e.preventDefault(); await api("/logout", { method: "POST" }); showLogin(); });
+$("#logout").addEventListener("click", signOut);
+$("#pending-out").addEventListener("click", signOut);
+$("#pending-reload").addEventListener("click", () => location.reload());
+function renderMe() {
+  const m = state.me;
+  $("#me").innerHTML = `${m.picture ? `<img src="${esc(m.picture)}" alt="" referrerpolicy="no-referrer">`
+    : `<span class="avatar">${esc((m.name || m.email)[0].toUpperCase())}</span>`}
+    <span class="who" title="${esc(m.email)}">${esc(m.name || m.email)}${m.role === "admin" ? ` <span class="role">admin</span>` : ""}</span>`;
+  $("#admin-link").classList.toggle("hidden", m.role !== "admin");
+}
+async function refreshAdminCount() {
+  if (!state.me || state.me.role !== "admin") return;
+  try {
+    const n = (await api("/admin/users")).filter((u) => u.status === "pending").length;
+    $("#admin-count").textContent = n;
+    $("#admin-count").classList.toggle("hidden", !n);
+  } catch { /* not fatal */ }
+}
 
 // ------------------------------------------------------------------ sidebar
 async function loadCourses() {
@@ -192,6 +231,7 @@ async function render() {
     else if (parts[0] === "s") await viewSubmission(+parts[1], parts[2]);
     else if (parts[0] === "p") await viewPair(+parts[1]);
     else if (parts[0] === "status") await viewStatus();
+    else if (parts[0] === "admin") await viewAdmin();
     else viewHome();
   } catch (e) {
     v.innerHTML = `<div class="sheet empty"><h2>That didn't load</h2><p>${esc(e.message)}</p><a class="btn" href="#/">Go to overview</a></div>`;
@@ -673,10 +713,64 @@ async function viewStatus() {
     </tbody></table></div>`;
 }
 
+// ------------------------------------------------------------------ admin
+const ago = (iso) => {
+  if (!iso) return "never";
+  const m = Math.round((Date.now() - new Date(iso)) / 60000);
+  return m < 2 ? "just now" : m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} days ago`;
+};
+async function viewAdmin() {
+  const [users, courses] = await Promise.all([api("/admin/users"), api("/admin/courses")]);
+  const pending = users.filter((u) => u.status === "pending").length;
+  const status = (u) => u.status === "pending" ? `<span class="flag mark">Waiting for you</span>`
+    : u.status === "disabled" ? `<span class="flag red">Switched off</span>` : `<span class="flag green">Active</span>`;
+  const actions = (u) => {
+    if (u.id === state.me.id) return `<span class="muted small">You</span>`;
+    const b = [];
+    if (u.status !== "active") b.push(`<button class="btn small primary" data-u="${u.id}" data-set='{"status":"active"}'>${u.status === "pending" ? "Approve" : "Switch on"}</button>`);
+    if (u.status !== "disabled") b.push(`<button class="btn small ghost danger" data-u="${u.id}" data-set='{"status":"disabled"}'>${u.status === "pending" ? "Refuse" : "Switch off"}</button>`);
+    if (u.status === "active" && !u.fixed_admin) b.push(u.role === "admin"
+      ? `<button class="btn small ghost" data-u="${u.id}" data-set='{"role":"teacher"}'>Remove admin</button>`
+      : `<button class="btn small ghost" data-u="${u.id}" data-set='{"role":"admin"}'>Make admin</button>`);
+    return `<div class="admin-actions">${b.join("")}</div>`;
+  };
+  view().innerHTML = `<div class="topline"><div class="grow"><h1>Admin</h1>
+      <p class="muted" style="margin:6px 0 0">${users.length} teacher(s)${pending ? `, <b>${pending} waiting for your approval</b>` : ""}, ${courses.length} course(s).</p></div></div>
+    <section class="sheet" style="margin-bottom:16px">
+      <div class="pad" style="border-bottom:1px solid var(--rule-2)"><h2>Teachers</h2>
+        <div class="muted small">Colleagues appear here after they sign in with Google. Each one sees only the courses they teach.</div></div>
+      <div class="table-wrap"><table class="register"><thead><tr><th>Teacher</th><th>Status</th><th class="num">Courses</th><th class="num">Grading runs</th><th>Last seen</th><th></th></tr></thead><tbody>
+      ${users.map((u) => `<tr><td class="name">${esc(u.name || u.email)} ${u.role === "admin" ? `<span class="role">admin</span>` : ""}
+          <div class="muted small">${esc(u.email)}${u.google ? "" : (u.email.endsWith("@local") ? " (password sign-in)" : " · Google not connected")}</div></td>
+        <td>${status(u)}</td><td class="num">${u.courses}</td><td class="num">${u.grading_runs}</td>
+        <td class="muted small">${ago(u.last_seen_at)}</td><td>${actions(u)}</td></tr>`).join("")}
+      </tbody></table></div></section>
+    <section class="sheet">
+      <div class="pad" style="border-bottom:1px solid var(--rule-2)"><h2>All courses</h2>
+        <div class="muted small">You can open any assignment to help out. Grades can be published only by the course's own teachers.</div></div>
+      <div class="table-wrap"><table class="register"><thead><tr><th>Course</th><th>Teachers</th><th>Assignments</th></tr></thead><tbody>
+      ${courses.map((c) => `<tr><td class="name">${esc(c.name)}${c.section ? `<div class="muted small">${esc(c.section)}</div>` : ""}</td>
+        <td class="small">${c.teachers.map((t) => esc(t.name || t.email)).join(", ") || `<span class="muted">nobody</span>`}</td>
+        <td class="small">${c.assignments.map((a) => `<a href="#/a/${a.id}">${esc(a.title)}</a>`).join(" · ") || `<span class="muted">none</span>`}</td></tr>`).join("")}
+      </tbody></table></div></section>`;
+  $$("[data-set]").forEach((btn) => (btn.onclick = () => act(btn, async () => {
+    await api(`/admin/users/${btn.dataset.u}`, { method: "PATCH", body: JSON.parse(btn.dataset.set) });
+    await render();
+    refreshAdminCount();
+  })));
+}
+
 // ------------------------------------------------------------------ boot
 async function boot() {
-  try { await api("/me"); } catch { return; }
+  const err = location.hash.match(/^#\/signin-error\/(.*)$/);
+  if (err) { history.replaceState(null, "", "#/"); return showLogin(decodeURIComponent(err[1])); }
+  try { state.me = await api("/me"); } catch { return; }
+  if (state.me.status !== "active") return showPending();
+  $("#login").classList.add("hidden");
+  $("#pending").classList.add("hidden");
   $("#app").classList.remove("hidden");
+  renderMe();
+  refreshAdminCount();
   await loadCourses();
   if (!state.courses.length) {   // first visit: load from Classroom automatically
     try { await api("/courses/sync", { method: "POST" }); await loadCourses(); } catch (e) { toast(e.message, true); }

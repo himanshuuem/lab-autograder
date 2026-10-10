@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import (JSON, Boolean, DateTime, Float, ForeignKey, Integer, String, Text,
+from sqlalchemy import (JSON, Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Table, Text,
                         UniqueConstraint, false, text)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -13,6 +13,34 @@ def now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+class User(Base):
+    """A teacher who signs in (with Google, or the local admin form)."""
+    __tablename__ = "users"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(String(300), unique=True)
+    name: Mapped[str] = mapped_column(String(300), default="")
+    picture: Mapped[str] = mapped_column(String(1000), default="")
+    role: Mapped[str] = mapped_column(String(20), default="teacher")        # teacher | admin
+    status: Mapped[str] = mapped_column(String(20), default="pending")      # pending | active | disabled
+    # the teacher's Google grant (refresh token), encrypted with SECRET_KEY
+    google_token: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    courses: Mapped[list["Course"]] = relationship(secondary="course_teachers", back_populates="teachers")
+
+    @property
+    def is_admin(self) -> bool:
+        return self.role == "admin"
+
+
+# who teaches a course: everyone who loaded it from their own Classroom (co-teachers share it)
+course_teachers = Table(
+    "course_teachers", Base.metadata,
+    Column("course_id", ForeignKey("courses.id", ondelete="CASCADE"), primary_key=True),
+    Column("user_id", ForeignKey("users.id", ondelete="CASCADE"), primary_key=True),
+)
+
+
 class Course(Base):
     __tablename__ = "courses"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -21,6 +49,7 @@ class Course(Base):
     section: Mapped[str] = mapped_column(String(300), default="")
     link: Mapped[str] = mapped_column(String(500), default="")
     assignments: Mapped[list["Assignment"]] = relationship(back_populates="course", cascade="all, delete-orphan")
+    teachers: Mapped[list[User]] = relationship(secondary="course_teachers", back_populates="courses")
 
 
 class Assignment(Base):
@@ -188,6 +217,7 @@ class Job(Base):
     kind: Mapped[str] = mapped_column(String(30))
     assignment_id: Mapped[int | None] = mapped_column(ForeignKey("assignments.id", ondelete="CASCADE"), nullable=True)
     submission_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)     # who started it
     status: Mapped[str] = mapped_column(String(20), default="queued")
     progress: Mapped[int] = mapped_column(Integer, default=0)
     total: Mapped[int] = mapped_column(Integer, default=0)

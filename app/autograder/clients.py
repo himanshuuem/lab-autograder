@@ -31,13 +31,16 @@ async def _mcp_streams(url: str, headers: dict):
 class ClassroomClient:
     """Synchronous wrapper: each call opens a short MCP session."""
 
-    def __init__(self, url: str | None = None, token: str | None = None):
+    def __init__(self, url: str | None = None, token: str | None = None, access_token: str | None = None):
         self.url = url or settings.mcp_url
         self.token = settings.mcp_token if token is None else token
+        self.access_token = access_token          # the signed-in teacher's Google token
 
     async def _call(self, tool: str, args: dict) -> dict:
         from mcp import ClientSession
         headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
+        if self.access_token:
+            headers["X-Google-Access-Token"] = self.access_token
         async with _mcp_streams(self.url, headers) as (r, w, _):
             async with ClientSession(r, w) as s:
                 await s.initialize()

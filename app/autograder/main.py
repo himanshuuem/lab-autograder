@@ -21,7 +21,8 @@ def create_app(start_worker: bool | None = None) -> FastAPI:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     os.makedirs(settings.data_dir, exist_ok=True)
     init_engine(settings.database_url)
-    worker = Worker(lambda jid: grading.run_grade_job(jid, api.classroom_client(), api.sandbox_client()))
+    # each job reads Classroom as the teacher who started it (api.classroom_client(user, course))
+    worker = Worker(lambda jid: grading.run_grade_job(jid, sb=api.sandbox_client(), classroom=api.classroom_client))
 
     @asynccontextmanager
     async def lifespan(app):
@@ -34,6 +35,7 @@ def create_app(start_worker: bool | None = None) -> FastAPI:
     app.state.worker = worker
     app.include_router(api.public)
     app.include_router(api.api)
+    app.include_router(api.admin)
     app.mount("/static", StaticFiles(directory=STATIC), name="static")
 
     @app.get("/", include_in_schema=False)

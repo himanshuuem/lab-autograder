@@ -121,6 +121,64 @@ students: all 7s, all 9s, all 8s) so its output can still be checked.
 
 ---
 
+## Sharing with colleagues (every teacher signs in with Google)
+
+Each teacher signs in with their own college Google account, sees only the courses they
+teach, and grades and publishes as themselves. Admins (`ADMIN_EMAILS`) approve
+colleagues, can open any course to help, and see who is using the app on the **Admin**
+page. Co-teachers of a Classroom course share it in the app.
+
+**1. A Google sign-in client, once, in the college's Google Workspace.** Signed in with
+your `@college.ac.in` account at <https://console.cloud.google.com>:
+
+1. Create a project (for example "Lab Grader").
+2. **APIs & Services → Library**: enable **Google Classroom API** and **Google Drive API**.
+3. **OAuth consent screen**: user type **Internal** (only college accounts can sign in, and
+   Google doesn't need to review the app). App name "Lab Grader", your email as support.
+   Add the scopes `openid`, `email`, `profile`, `classroom.courses.readonly`,
+   `classroom.coursework.students`, `classroom.rosters.readonly`,
+   `classroom.profile.emails`, `drive.readonly`.
+4. **Credentials → Create credentials → OAuth client ID → Web application.** Authorized
+   redirect URI: `https://grader.college.ac.in/api/auth/google/callback` (your address),
+   plus `http://localhost:8000/api/auth/google/callback` for trying it on your laptop.
+
+If the college's Workspace admin restricts third-party apps, ask IT to mark the app as
+trusted (Admin console → Security → API controls → App access control).
+
+**2. In `.env`:**
+
+```
+GOOGLE_CLIENT_ID=…apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=…
+PUBLIC_URL=https://grader.college.ac.in
+ALLOWED_DOMAIN=college.ac.in
+ADMIN_EMAILS=you@college.ac.in
+SIGNUP=approve          # or open: anyone from the domain gets in without approval
+COOKIE_SECURE=1         # when served over HTTPS
+```
+
+Then `make up`. Sign in with Google: you're the admin, and the courses already in the app
+become yours. Colleagues open the same address, sign in, and appear under **Admin →
+Teachers** for you to approve. Once Google sign-in works you can set `LOCAL_LOGIN=0` to
+hide the password form.
+
+**3. A server everyone can reach.** Any Linux machine with Docker that stays on: a
+department server (student work stays on campus) or a cloud VM (4 CPUs, 8 GB RAM is
+plenty for a department). Give it an address such as `grader.college.ac.in` and put HTTPS
+in front, for example with [Caddy](https://caddyserver.com), whose whole config is:
+
+```
+grader.college.ac.in {
+    reverse_proxy 127.0.0.1:8000
+}
+```
+
+Back up the database nightly (`make backup`, e.g. from cron). Each teacher's Google access
+is stored encrypted with `SECRET_KEY`; keep `.env` safe, and if you change `SECRET_KEY`
+teachers just sign in again.
+
+---
+
 ## Connecting your real Google Classroom
 
 Do this once, on your own laptop (it needs a browser).

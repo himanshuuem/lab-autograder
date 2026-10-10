@@ -35,13 +35,17 @@ def flag(code: str, q: str | None = None, msg: str = "") -> dict:
 
 
 # ------------------------------------------------------------------ sync
-def sync_courses(db, cc: ClassroomClient) -> int:
+def sync_courses(db, cc: ClassroomClient, user=None) -> int:
+    """Load the teacher's Classroom courses and assignments; the teacher becomes one of each
+    course's teachers in the app (co-teachers share a course)."""
     n = 0
     for c in cc.courses():
         course = db.scalar(select(Course).where(Course.ext_id == c["id"]))
         if not course:
             course = Course(ext_id=c["id"], name=c["name"])
             db.add(course)
+        if user is not None and user not in course.teachers:
+            course.teachers.append(user)
         course.name, course.section, course.link = c["name"], c.get("section") or "", c.get("link") or ""
         db.flush()
         for w in cc.coursework(c["id"]):
@@ -612,12 +616,18 @@ def _grade_ids(sub_ids: list[int], job_id: int, sb: SandboxClient, done_start: i
         list(ex.map(one, sub_ids))
 
 
-def run_grade_job(job_id: int, cc: ClassroomClient | None = None, sb: SandboxClient | None = None):
-    cc, sb = cc or ClassroomClient(), sb or SandboxClient()
+def run_grade_job(job_id: int, cc: ClassroomClient | None = None, sb: SandboxClient | None = None,
+                  classroom=None):
+    """`classroom(user, course)` gives the Classroom as the teacher who started the job."""
+    sb = sb or SandboxClient()
     with session_scope() as db:
         job = db.get(Job, job_id)
         kind, aid, sid = job.kind, job.assignment_id, job.submission_id
         a = db.get(Assignment, aid)
+        if cc is None:
+            from .models import User
+            cc = (classroom(db.get(User, job.user_id) if job.user_id else None, a.course) if classroom
+                  else ClassroomClient())
         if kind == "grade" and not a.tests_imported and a.materials:
             _set_job(job_id, message="Reading test cases from the assignment PDF")
             import_tests(db, cc, a)

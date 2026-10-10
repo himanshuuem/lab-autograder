@@ -87,3 +87,47 @@ def test_provider_errors_become_tool_errors(server):
                 res = await s.call_tool("list_coursework", {"course_id": "nope"})
                 assert res.isError and "unknown course" in res.content[0].text
     asyncio.run(go())
+
+
+class _Teacher(DemoProvider):
+    """Stands in for GoogleProvider(access_token=...): lists only that teacher's course."""
+    def __init__(self, token):
+        super().__init__()
+        self.token = token
+
+    def list_courses(self):
+        return [{"id": f"course-of-{self.token}", "name": self.token, "section": "", "link": ""}]
+
+
+def test_each_teacher_acts_with_their_own_token():
+    import os
+    os.environ["MCP_TOKEN"] = "tok"
+    from classroom_mcp.server import create_app
+    port = _port()
+    made = []
+    srv = uvicorn.Server(uvicorn.Config(create_app(DemoProvider(), lambda t: made.append(t) or _Teacher(t)),
+                                        port=port, log_level="warning"))
+    th = threading.Thread(target=srv.run, daemon=True)
+    th.start()
+    while not srv.started:
+        time.sleep(0.05)
+    url = f"http://127.0.0.1:{port}"
+
+    async def courses(google=None):
+        h = {"Authorization": "Bearer tok", **({"X-Google-Access-Token": google} if google else {})}
+        async with streamablehttp_client(f"{url}/mcp", headers=h) as (r, w, _):
+            async with ClientSession(r, w) as s:
+                await s.initialize()
+                res = await s.call_tool("list_courses", {})
+                assert not res.isError, res.content
+                data = res.structuredContent or json.loads(res.content[0].text)
+                return [c["id"] for c in data["courses"]]
+    try:
+        assert asyncio.run(courses("asha")) == ["course-of-asha"]
+        assert asyncio.run(courses("ravi")) == ["course-of-ravi"]
+        assert asyncio.run(courses("asha")) == ["course-of-asha"]
+        assert asyncio.run(courses()) == ["demo-it2271"]            # no token: the server's own account
+        assert made == ["asha", "ravi"]                              # asha's provider was reused
+    finally:
+        srv.should_exit = True
+        th.join(5)

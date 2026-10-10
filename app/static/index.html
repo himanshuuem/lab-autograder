@@ -13,14 +13,32 @@
 <body>
   <div class="glow" aria-hidden="true"><i></i><i></i><i></i></div>
   <div id="login" class="login hidden">
-    <form class="sheet" id="login-form">
+    <div class="sheet login-card">
       <h1><span class="brand"><span class="tick" aria-hidden="true">✓</span></span>Lab Grader</h1>
-      <p class="muted small">Sign in to grade your Classroom assignments.</p>
-      <label class="field"><span>Username</span><input type="text" name="username" autocomplete="username" required></label>
-      <label class="field"><span>Password</span><input type="password" name="password" autocomplete="current-password" required></label>
+      <p class="muted small" id="login-lede">Sign in to grade your Classroom assignments.</p>
       <div class="err" id="login-err" role="alert"></div>
-      <button class="btn primary" type="submit" style="width:100%">Sign in</button>
-    </form>
+      <a class="btn primary google hidden" id="google-signin" href="/api/auth/google">
+        <svg viewBox="0 0 18 18" width="18" height="18" aria-hidden="true"><path fill="#fff" d="M17.64 9.2c0-.64-.06-1.25-.16-1.84H9v3.48h4.84a4.14 4.14 0 0 1-1.8 2.72v2.26h2.92c1.7-1.57 2.68-3.88 2.68-6.62z"/><path fill="#fff" opacity=".8" d="M9 18c2.43 0 4.47-.8 5.96-2.18l-2.92-2.26c-.8.54-1.84.86-3.04.86-2.34 0-4.32-1.58-5.03-3.7H.96v2.33A9 9 0 0 0 9 18z"/><path fill="#fff" opacity=".6" d="M3.97 10.72A5.4 5.4 0 0 1 3.68 9c0-.6.1-1.18.29-1.72V4.95H.96A9 9 0 0 0 0 9c0 1.45.35 2.83.96 4.05l3.01-2.33z"/><path fill="#fff" opacity=".9" d="M9 3.58c1.32 0 2.5.45 3.44 1.35l2.58-2.58A9 9 0 0 0 .96 4.95l3.01 2.33C4.68 5.16 6.66 3.58 9 3.58z"/></svg>
+        Sign in with Google</a>
+      <details id="local-login" class="hidden">
+        <summary class="muted small">Sign in with the admin password</summary>
+        <form id="login-form">
+          <label class="field"><span>Username</span><input type="text" name="username" autocomplete="username" required></label>
+          <label class="field"><span>Password</span><input type="password" name="password" autocomplete="current-password" required></label>
+          <button class="btn" type="submit" style="width:100%">Sign in</button>
+        </form>
+      </details>
+    </div>
+  </div>
+
+  <div id="pending" class="login hidden">
+    <div class="sheet login-card">
+      <h1><span class="brand"><span class="tick" aria-hidden="true">✓</span></span>Almost there</h1>
+      <p>You're signed in as <b id="pending-email"></b>.</p>
+      <p class="muted">The admin has to approve your account before you can grade. You'll get in as soon as they do: just reload this page.</p>
+      <button class="btn" id="pending-reload" style="width:100%">Check again</button>
+      <p style="margin-top:10px"><a href="#" class="muted small" id="pending-out">Sign out</a></p>
+    </div>
   </div>
 
   <div id="app" class="shell hidden">
@@ -29,7 +47,9 @@
       <div style="padding:12px 16px 0"><button class="btn small" id="sync" style="width:100%">Refresh from Classroom</button></div>
       <nav class="courses" id="courses" aria-label="Courses and assignments"></nav>
       <div class="side-foot">
+        <a href="#/admin" id="admin-link" class="admin-link hidden">Admin<span class="count hidden" id="admin-count"></span></a>
         <a href="#/status" id="svc" class="muted"><span class="dot"></span>Checking services</a>
+        <div class="me" id="me"></div>
         <div style="margin-top:6px"><a href="#" id="logout" class="muted small">Sign out</a></div>
       </div>
     </aside>

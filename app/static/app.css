@@ -403,3 +403,18 @@ pre.out .bad { background: var(--fail-soft); color: var(--fail); border-radius: 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* ---- sign-in, approval and admin */
+.login-card { display: grid; gap: 14px; }
+.login-card details summary { cursor: pointer; list-style: none; text-align: center; }
+.login-card details form { display: grid; gap: 12px; margin-top: 12px; }
+.btn.google { display: inline-flex; align-items: center; justify-content: center; gap: 10px; width: 100%; text-decoration: none; }
+.me { display: flex; align-items: center; gap: 8px; margin-top: 10px; min-width: 0; }
+.me img, .me .avatar { width: 24px; height: 24px; border-radius: 50%; flex: none; }
+.me .avatar { display: grid; place-items: center; background: var(--blue-soft); color: var(--blue); font-weight: 700; font-size: 12px; }
+.me .who { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+.admin-link { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; font-weight: 600; color: var(--ink); }
+.admin-link .count { background: var(--mark); color: #1b1300; border-radius: 999px; padding: 0 7px; font-size: 11.5px; font-weight: 700; }
+.role { font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--blue-soft); color: var(--blue); }
+.admin-actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
+.login-card p { margin: 0; }

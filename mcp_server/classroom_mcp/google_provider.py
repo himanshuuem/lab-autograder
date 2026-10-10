@@ -1,7 +1,10 @@
 """Real Google Classroom + Drive.
 
-Auth: an OAuth user token (token.json) made once on your own machine with
-scripts/google_auth.py, then mounted read-write into the container.
+Auth, either:
+- the signed-in teacher's access token, sent by the dashboard with each request
+  (X-Google-Access-Token; the dashboard keeps and refreshes each teacher's grant), or
+- an OAuth user token (token.json) made once with scripts/google_auth.py, for a
+  single-teacher setup.
 """
 from __future__ import annotations
 
@@ -53,8 +56,9 @@ def _files(items) -> list[dict]:
 class GoogleProvider(Provider):
     mode = "google"
 
-    def __init__(self, token_file: str | None = None, classroom=None, drive=None):
+    def __init__(self, token_file: str | None = None, classroom=None, drive=None, access_token: str | None = None):
         self.token_file = token_file or os.environ.get("GOOGLE_TOKEN_FILE", "/secrets/token.json")
+        self.access_token = access_token
         self._classroom, self._drive = classroom, drive
         self._rosters: dict[str, dict] = {}
 
@@ -62,6 +66,8 @@ class GoogleProvider(Provider):
     def _creds(self):
         from google.auth.transport.requests import Request
         from google.oauth2.credentials import Credentials
+        if self.access_token:
+            return Credentials(token=self.access_token)
         if not os.path.exists(self.token_file):
             raise ProviderError(f"Google token not found at {self.token_file}. "
                                 "Run scripts/google_auth.py on your computer first (see README).")

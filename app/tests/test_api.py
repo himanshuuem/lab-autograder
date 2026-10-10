@@ -26,7 +26,8 @@ def test_auth(client):
     assert client.get("/api/courses").status_code == 401
     assert client.post("/api/login", json={"username": "ta", "password": "nope"}).status_code == 401
     login(client)
-    assert client.get("/api/me").json() == {"user": "ta"}
+    me = client.get("/api/me").json()
+    assert me["email"] == "ta@local" and me["role"] == "admin" and me["status"] == "active"
     client.post("/api/logout")
     assert client.get("/api/courses").status_code == 401
 
