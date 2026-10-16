@@ -179,6 +179,53 @@ teachers just sign in again.
 
 ---
 
+## Deploying on a free cloud server (Oracle Cloud)
+
+Free app hosts such as Render, Railway or Fly can't run the grader: the sandbox has to
+start a Docker container for every student program, and they give no access to Docker.
+Oracle Cloud's **Always Free** Arm VM (2 CPUs, 12 GB memory, 200 GB disk) runs the whole
+stack unchanged.
+
+**1. Create the VM.** Sign up at <https://www.oracle.com/cloud/free/> (a card is needed
+for verification; Always Free resources are not charged). In the home region:
+**Compute → Instances → Create instance**, image **Canonical Ubuntu 24.04**, shape
+**VM.Standard.A1.Flex** with 2 OCPUs and 12 GB. Add your SSH public key. If it says
+"out of capacity", try another availability domain or try again later.
+
+**2. Open ports 80 and 443.** **Networking → Virtual cloud networks →** your VCN **→
+Security Lists → Default → Add Ingress Rules**: source `0.0.0.0/0`, TCP, destination
+ports `80,443`.
+
+**3. Copy the code and run the setup script:**
+
+```bash
+ssh ubuntu@<public-ip>
+git clone https://github.com/himanshuuem/lab-autograder.git autograder   # or scp the folder
+cd autograder
+sudo bash scripts/server_setup.sh                    # or: ... server_setup.sh grader.example.org
+```
+
+The script installs Docker, opens the VM's own firewall, builds and starts the stack
+with HTTPS in front (Caddy, Let's Encrypt), and adds a nightly `make backup` that keeps
+14 days. With no domain it uses `https://<ip-with-dashes>.sslip.io`. It prints the
+dashboard address and the `ta` password. The first build takes 10 to 20 minutes.
+
+**4. Connect Google Classroom.** Either copy your token from your laptop
+(`scp secrets/token.json ubuntu@<public-ip>:autograder/secrets/`), set
+`CLASSROOM_MODE=google` in `.env` and run `docker compose up -d mcp app`; or set up
+Sign in with Google as in "Sharing with colleagues", with the redirect URI
+`https://<your address>/api/auth/google/callback`. If Google refuses the sslip.io address,
+use a free [DuckDNS](https://www.duckdns.org) name or your own domain, and run the
+script again with it.
+
+**Updating:** `git pull && make up`.
+
+Oracle may reclaim an Always Free VM that stays idle (under 20% CPU, network and memory
+for 7 days). Upgrading the account to Pay As You Go stops that and still charges nothing
+while you stay within the free limits.
+
+---
+
 ## Connecting your real Google Classroom
 
 Do this once, on your own laptop (it needs a browser).

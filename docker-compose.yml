@@ -100,6 +100,18 @@ services:
     image: autograder/runner-java:latest
     command: ["true"]
 
+  # ---- HTTPS on a public server (docker compose --profile https up -d caddy)
+  # Certificates for DOMAIN come from Let's Encrypt; ports 80 and 443 must be open.
+  caddy:
+    <<: *restart
+    profiles: ["https"]
+    image: caddy:2.8.4
+    network_mode: host   # reaches the dashboard on 127.0.0.1
+    command: ["caddy", "reverse-proxy", "--from", "${DOMAIN:-localhost}", "--to", "127.0.0.1:${APP_PORT:-8000}"]
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+
   # ---- CI (docker compose --profile ci up -d jenkins)
   jenkins:
     <<: *restart
@@ -122,3 +134,5 @@ volumes:
   pgdata:
   appdata:
   jenkins_home:
+  caddy_data:
+  caddy_config:
