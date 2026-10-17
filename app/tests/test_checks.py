@@ -339,3 +339,62 @@ public class Main { public static void main(String[] x) { } }
 ])
 def test_shown_output_comparison(shown, prints, image, differs):
     assert checks.shown_output_differs(shown, prints, image) is differs
+
+
+# a real Assignment submission: the third CGPA is written as a whole number (9), and the
+# program correctly prints that student; the check used to skip the 9 and expect 8.9
+CGPA_WHOLE = '''class Student {
+    String name, dept; int rollNo; double cgpa;
+    Student(String name, int rollNo, String dept, double cgpa) {
+        this.name = name; this.rollNo = rollNo; this.dept = dept; this.cgpa = cgpa; }
+    public static void main(String[] args) {
+        Student[] students = new Student[3];
+        students[0] = new Student("a",1,"IT",8.9);
+        students[1] = new Student("b",2,"CST",7.8);
+        students[2] = new Student("c",3,"IT",9);
+    }
+}'''
+
+
+def test_highest_cgpa_written_as_a_whole_number():
+    ok, note = checks.check_highest_cgpa(CGPA_WHOLE, "c 3 IT 9.0\n")
+    assert ok and "9" in note
+    ok, note = checks.check_highest_cgpa(CGPA_WHOLE, "a 1 IT 8.9\n")       # the wrong student
+    assert not ok and "is 9;" in note
+
+
+def test_highest_cgpa_read_from_the_constructor_position():
+    # CGPA comes second and the roll number (10) is also in 0-10: only the cgpa slot counts
+    code = '''class Student { String n; double cg; int roll;
+        Student(String n, double cg, int roll) { this.n = n; this.cg = cg; this.roll = roll; }
+        static void m() { new Student("x, y", 9, 4); new Student("z", 8.5, 10); } }'''
+    assert checks.check_highest_cgpa(code, "x, y 9.0 4")[0]
+    assert not checks.check_highest_cgpa(code, "z 8.5 10")[0]
+
+
+def test_highest_cgpa_whatever_the_class_is_called():
+    # real submissions named the class `student` and `Students`
+    lower = '''class student { String name; int roll; String dept; double cgpa;
+        student(String name, int roll, String dept, double cgpa) { this.cgpa = cgpa; }
+        public static void main(String[] a) { student s[] = new student[3];
+            s[0] = new student("ramu", 88, "it", 9.2); s[1] = new student("vishnu", 45, "cst", 8);
+            s[2] = new student("gowtham", 44, "it", 9.5); } }'''
+    assert checks.check_highest_cgpa(lower, "name:gowthamroll:44deptitcgpa9.5")[0]    # glued to the word
+    plural = lower.replace("student", "Students")
+    assert checks.check_highest_cgpa(plural, "gowtham 44 it 9.5")[0]
+    assert not checks.check_highest_cgpa(plural, "ramu 88 it 9.2")[0]
+
+
+def test_highest_cgpa_float_suffix_and_default_zero():
+    # `8.82f` in the constructor call, `s1.cgpa = 9.08f;` on a field (real submissions)
+    ctor = '''class Student { float Cgpa; Student(String n, int r, String d, float CGPA) { Cgpa = CGPA; }
+        static void m() { new Student("A", 64, "IT", 8.82f); new Student("B", 79, "CST", 9.02f); } }'''
+    assert checks.check_highest_cgpa(ctor, "B 79 CST 9.02")[0]
+    field = '''class student { float cgpa; static void m() { student s1 = new student(); s1.cgpa = 9.08f;
+        student s2 = new student(); s2.cgpa = 8.0f; } }'''
+    assert checks.check_highest_cgpa(field, "CGPA : 9.08")[0]
+    # a default `cgpa = 0;` with the real values read from the keyboard is not a CGPA of 0
+    typed = '''class Student { double cgpa; Student() { cgpa = 0; }
+        void read(java.util.Scanner sc) { cgpa = sc.nextDouble(); } }'''
+    ok, note = checks.check_highest_cgpa(typed, "x 9 9 9.0\n", typed=True)
+    assert ok and "is 0" not in note

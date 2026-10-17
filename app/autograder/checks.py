@@ -207,18 +207,78 @@ KEYBOARD_INPUT = "3\n" + "7\n" * 4 + "9\n" * 4 + "8\n" * 4 + "6\n" * 60
 KEYBOARD_NOTE = "3 students whose values are all 7, all 9 and all 8"
 
 
+def _split_args(args: str) -> list[str]:
+    """`"a, b", 3, f(1, 2)` -> ['"a, b"', '3', 'f(1, 2)']: commas inside strings and calls don't split."""
+    parts, cur, depth, quote = [], "", 0, ""
+    for ch in args:
+        if quote:
+            cur += ch
+            if ch == quote:
+                quote = ""
+        elif ch in "\"'":
+            quote = ch
+            cur += ch
+        elif ch in "([{":
+            depth += 1
+            cur += ch
+        elif ch in ")]}":
+            depth -= 1
+            cur += ch
+        elif ch == "," and depth == 0:
+            parts.append(cur.strip())
+            cur = ""
+        else:
+            cur += ch
+    parts.append(cur.strip())
+    return parts
+
+
+def _student_class(code: str) -> str:
+    """The class that holds the students, as a regex: Student, or whatever the code calls it
+    (`student`, `Students`, `StudentInfo`): a class declaring a cgpa-like field."""
+    names = {"Student"}
+    for m in re.finditer(r"\bclass\s+([A-Za-z_]\w*)\s*[^{]*\{", code):
+        body = code[m.end():m.end() + 2000]
+        if re.search(r"\b(?:double|float|Double|Float|int)\s+\w*gpa\w*\s*[;,=]", body, re.I) or re.search(r"stud", m.group(1), re.I):
+            names.add(m.group(1))
+    return "(?:" + "|".join(sorted(map(re.escape, names))) + ")"
+
+
+def _cgpa_slot(code: str) -> tuple[int | None, int]:
+    """Which argument of `Student(...)` is the CGPA, from the constructor's own parameters:
+    the one named like cgpa/cg/gpa, else the only double/float one."""
+    for params in re.findall(r"\b" + _student_class(code) + r"\s*\(([^()]*)\)\s*(?:throws\s+[\w.,\s]+)?\{", code):
+        names = [p.split() for p in _split_args(params) if p.strip()]
+        if not names or any(len(n) < 2 for n in names):
+            continue
+        by_name = [i for i, n in enumerate(names) if re.search(r"c?gpa|^cg", n[-1], re.I)]
+        by_type = [i for i, n in enumerate(names) if n[-2] in ("double", "float", "Double", "Float")]
+        pick = by_name or (by_type if len(by_type) == 1 else [])
+        if len(pick) == 1:
+            return pick[0], len(names)
+    return None, 0
+
+
 def check_highest_cgpa(code: str, stdout: str, typed: bool = False) -> tuple[bool, str]:
     """The CGPA values are the decimal arguments in `new Student(...)` calls (or assigned
     to a cgpa field); the program must print the largest of them. When the students were
     typed in (KEYBOARD_INPUT), the last line with a number must show the 9 student."""
     values = []
-    for args in re.findall(r"new\s+Student\s*\(([^;]*?)\)\s*[;,)]", code or "", flags=re.S):
-        nums = [n for n in re.findall(r"(?<![\w.])(\d+\.\d+|\d+)(?![\w.])", args)]
+    slot, n_params = _cgpa_slot(code or "")
+    for args in re.findall(r"new\s+" + _student_class(code or "") + r"\s*\(([^;]*?)\)\s*[;,)]", code or "", flags=re.S):
+        parts = _split_args(args)
+        if slot is not None and len(parts) == n_params:
+            # the argument in the constructor's CGPA position, whole numbers too (9 is a CGPA)
+            m = re.fullmatch(r"(\d+(?:\.\d+)?)[fFdD]?", parts[slot])     # 8.82f is a float literal
+            if m and 0 < _num(m.group(1)) <= 10:
+                values.append(m.group(1))
+            continue
+        nums = [n for n in re.findall(r"(?<![\w.])(\d+\.\d+|\d+)[fFdD]?(?![\w.])", args)]
         dec = [n for n in nums if "." in n and 0 <= _num(n) <= 10]
         if dec:
             values.append(dec[-1])
-    for n in re.findall(r"\b\w*cgpa\w*\s*=\s*(\d+(?:\.\d+)?)\s*;", code or "", flags=re.I):
-        if 0 <= _num(n) <= 10:
+    for n in re.findall(r"\b\w*cgpa\w*\s*=\s*(\d+(?:\.\d+)?)[fFdD]?\s*;", code or "", flags=re.I):
+        if 0 < _num(n) <= 10:          # `cgpa = 0;` is a default before the real value is read, not a CGPA
             values.append(n)
     if not values and typed:
         last = next((ln for ln in reversed((stdout or "").splitlines()) if re.search(r"\d", ln)), "")
@@ -228,7 +288,7 @@ def check_highest_cgpa(code: str, stdout: str, typed: bool = False) -> tuple[boo
     if not values:
         return False, "couldn't find the CGPA values in the code (read from input?): check by hand"
     best = max(values, key=_num)
-    printed = [_num(x) for x in re.findall(r"(?<![\w.])\d+(?:\.\d+)?(?![\w])", stdout or "")]
+    printed = [_num(x) for x in re.findall(r"(?<![\d.])\d+(?:\.\d+)?(?!\d)", stdout or "")]
     ok = any(abs(x - _num(best)) < 1e-9 for x in printed)
     return ok, f"highest CGPA in the code is {best}; " + ("printed" if ok else "not found in the output")
 
