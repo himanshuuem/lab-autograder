@@ -144,6 +144,14 @@ def test_python_compiles_reports_error():
     ("Write a program to find the largest of three numbers.", False),
     ("The time complexity of this algorithm is O(n squared) in the worst case.", False),
     ("Name: Rahul Das", False),
+    # a long constructor header wrapped in a proportional font (assignment 6)
+    ("SavingsAccount(String accountNumber, String accountHolderName, double", True),
+    ("accountHolderName, double balance, String branchName, double", True),
+    ("// Parameter  constructor with default constructor incase of no imput", True),
+    ("The account holder can deposit money, withdraw money, and check the balance,", False),
+    ("Create a class BankAccount (with a constructor and a method", False),
+    # method signatures listed in the question text are not code
+    ("deposit(double amount, String source, String transactionId)", False),
 ])
 def test_code_score_proportional(text, is_code):
     assert (code_score(L(text, mono=False)) >= 2) == is_code

@@ -41,6 +41,8 @@ _CODE_START = re.compile(
     r"printf\(|scanf\(|cout\b|cin\b|System\.|Scanner |std::|vector<|try:|with |"
     # the same, auto-capitalised by Word (fixed later in cleanup)
     r"Print\(|Printf\(|Scanf\(|Def \w+\(|Return\b|Int main|Cout\b|Cin\b)")
+# `double balance,`
+_TYPED_PARAM = re.compile(r"\b(?:int|long|short|byte|float|double|char|boolean|String)(?:\[\])?\s+[A-Za-z_]\w*\s*,")
 _COMMENT = re.compile(r"^(//|/\*|\*/|\*\s|#(?!\s*\d)|\"\"\"|''')")
 
 
@@ -91,6 +93,14 @@ def code_score(ln: Line) -> int:
     # a statement split over lines: `Account a =`, `new SavingsAccount(`, `"S101", 20000,`
     if t.endswith(("=", "(", ",", "+", "&&", "||", "->")) and len(words) <= 5 and not t.endswith(("==", "+=")):
         s += 2
+    # a parameter list wrapped over lines: `Account(String no, String name, double`
+    # then `name, double balance, String branch, double`
+    if re.match(r"[A-Za-z_][\w.]*\([^)]*$", t) or (
+            "(" not in t and ")" not in t and len(_TYPED_PARAM.findall(t)) >= 2):
+        s += 2
+        return s
+    if t.startswith(("//", "/*")):   # a comment is prose by design
+        return s
     if len(words) >= 7 and t.endswith((".", "?")) and not t.endswith(");"):
         s -= 4
     elif len(words) >= 6 and not re.search(r"[;{}()=\[\]<>]", t):
