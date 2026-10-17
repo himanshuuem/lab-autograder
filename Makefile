@@ -52,7 +52,7 @@ test-docker: images
 	  bash -c "cd sandbox && python -m pytest -m docker -v tests/test_isolation_docker.py"
 
 smoke:
-	python3 scripts/smoke.py http://localhost:$${APP_PORT:-8000} $${ADMIN_USER:-ta} "$${ADMIN_PASSWORD}"
+	python3 scripts/smoke.py http://localhost:$${APP_PORT:-8000} $${ADMIN_USER:-ta} "$${ADMIN_PASSWORD}" $(ARGS)
 
 up-ci: init
 	$(COMPOSE) --profile ci up -d --build jenkins

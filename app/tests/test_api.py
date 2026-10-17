@@ -48,6 +48,7 @@ def test_full_flow(client):
     login(client)
     assert client.post("/api/courses/sync").json() == {"courses": 1}
     courses = client.get("/api/courses").json()
+    assert courses[0]["ext_id"] == "demo-it2271"
     aid = courses[0]["assignments"][0]["id"]
 
     r = client.post(f"/api/assignments/{aid}/import-tests").json()

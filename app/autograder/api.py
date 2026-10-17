@@ -243,7 +243,7 @@ def courses(db=DB, user: User = USER):
     """The courses this teacher teaches (an admin sees everyone's on the admin page)."""
     out = []
     for c in sorted(user.courses, key=lambda c: c.name):
-        out.append({"id": c.id, "name": c.name, "section": c.section, "link": c.link,
+        out.append({"id": c.id, "ext_id": c.ext_id, "name": c.name, "section": c.section, "link": c.link,
                     "assignments": [{"id": a.id, "title": a.title, "due": a.due,
                                      "graded": a.last_graded_at is not None}
                                     for a in sorted(c.assignments, key=lambda a: (a.due or "", a.title), reverse=True)]})

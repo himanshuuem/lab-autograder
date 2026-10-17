@@ -260,6 +260,12 @@ permission to set grades on coursework.
 
 ---
 
+## GitHub Actions
+
+Every push to `main` and every pull request runs `.github/workflows/ci.yml`: all unit
+tests, the real sandbox isolation tests, then the whole stack in demo mode and the smoke
+test. Results are on the repository's **Actions** tab.
+
 ## Jenkins
 
 ```bash
@@ -281,7 +287,7 @@ after editing them.
 | Command | What it does |
 |---|---|
 | `make up` | create `.env` if missing, build everything, start the dashboard |
-| `make smoke` | end-to-end check of the running stack |
+| `make smoke` | end-to-end check of the running stack; in Google mode it only checks your courses load (`make smoke ARGS=--grade` also grades the first assignment) |
 | `make test` | every unit test, inside a container (about 250 tests) |
 | `make test-docker` | real sandbox isolation tests against your Docker |
 | `make logs` / `make ps` | follow logs / list services |
