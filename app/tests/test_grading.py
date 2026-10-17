@@ -89,6 +89,19 @@ def test_infinite_loop_and_late(graded):
     assert ("LATE", None) in codes(s) and s.auto_score == 10
 
 
+def test_feedback_for_the_demo_class(graded):
+    from autograder.feedback import feedback_text
+    by = graded[2]
+    t = feedback_text(by["Kunal Ghosh"])
+    assert "Score: 10 / 20" in t and "Question 1: the program does not compile." in t
+    t = feedback_text(by["Mehul Das"])
+    assert "Turned in late." in t and "took too long" in t
+    t = feedback_text(by["Arjun Saha"])   # flagged for output the code can't print: not the student's to see
+    assert "Question 1:" in t and "wrong output" in t and "fabricat" not in t.lower()
+    assert "Rohit" not in feedback_text(by["Ananya Bose"])
+    assert "No file was turned in" in feedback_text(by["Debjit Sen"])
+
+
 def test_scanned_pdf_needs_review(graded):
     s = graded[2]["Ishita Roy"]
     assert ("OCR_USED", None) in codes(s) and s.needs_review

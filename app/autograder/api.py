@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select, text
 
 from . import auth, grading
+from .feedback import feedback_text
 from .clients import SandboxClient, ServiceError
 from .config import settings
 from .db import SessionLocal
@@ -472,6 +473,7 @@ def submission(sid: int, db=DB, user: User = USER):
         **ser_sub_row(s, [q.label for q in a.questions]),
         "assignment": {"id": a.id, "title": a.title, "max_points": a.max_points},
         "override_note": s.override_note, "error": s.error, "extraction": s.extraction or {},
+        "feedback": feedback_text(s),
         "has_pdf": bool(s.pdf_path), "graded_at": s.graded_at.isoformat() if s.graded_at else None,
         "files": [{"title": f.get("title"), "kind": f.get("kind"), "link": f.get("link")}
                   for f in (s.files or []) if f.get("title")],
@@ -577,14 +579,14 @@ def export_csv(aid: int, db=DB, user: User = USER):
     buf = io.StringIO()
     w = csv.writer(buf)
     w.writerow(["student", "email", "status", "late"] + [f"Q{l} tests" for l in labels]
-               + ["auto_score", "override_score", "final_score", f"out_of", "flags", "note"])
+               + ["auto_score", "override_score", "final_score", f"out_of", "flags", "note", "feedback"])
     for s in sorted(a.submissions, key=lambda s: s.student.name.lower()):
         by_q = {p.question_label: p for p in s.programs}
         qcols = [f"{by_q[l].tests_passed}/{by_q[l].tests_total}" if l in by_q else "missing" for l in labels]
         w.writerow([s.student.name, s.student.email, s.status, "yes" if s.late else ""] + qcols +
                    [s.auto_score, s.override_score, s.final_score, a.max_points,
                     "; ".join(f["code"] + (f" Q{f['q']}" if f.get("q") else "") for f in s.flags or []),
-                    s.override_note])
+                    s.override_note, feedback_text(s)])
     name = f"{a.title}.csv".replace("/", "-").replace('"', "")
     return StreamingResponse(iter([buf.getvalue()]), media_type="text/csv",
                              headers={"Content-Disposition": f'attachment; filename="{name}"'})

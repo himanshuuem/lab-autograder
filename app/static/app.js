@@ -639,6 +639,13 @@ async function viewSubmission(id) {
     ${ex.repairs && Object.keys(ex.repairs).length ? `<p class="muted small">While reading the submission: ${esc(repairText(ex.repairs))}.</p>` : ""}
     ${(ex.warnings || []).length ? `<p class="muted small">${ex.warnings.map(esc).join(" ")}</p>` : ""}
     <div id="programs"></div>
+    <section class="sheet qblock" style="margin-top:8px">
+      <div class="qhead"><h3>Feedback for the student</h3><button class="btn small primary" id="copyfb">Copy</button></div>
+      <div class="pad">
+        <p class="muted small" style="margin-top:0">Paste it into the student's private comment in Classroom. Hidden tests show only passed or failed; review flags and your note are left out. You can edit it before copying; edits aren't saved.</p>
+        <textarea id="fb" rows="12" aria-label="Feedback for the student">${esc(s.feedback)}</textarea>
+      </div>
+    </section>
     <label class="field sheet pad" style="margin-top:8px"><span>Note for yourself</span>
       <textarea id="note" rows="3" placeholder="Why you changed the score, what you discussed with the student…">${esc(s.override_note)}</textarea></label>`;
 
@@ -696,6 +703,12 @@ async function viewSubmission(id) {
   }); };
   const clr = $("#clr");
   if (clr) clr.onclick = () => act(clr, async () => { await api(`/submissions/${id}`, { method: "PATCH", body: { clear_override: true } }); render(); });
+  $("#copyfb").onclick = async () => {
+    const box = $("#fb");
+    try { await navigator.clipboard.writeText(box.value); }
+    catch { box.select(); document.execCommand("copy"); }
+    toast("Feedback copied. Paste it into the private comment in Classroom.");
+  };
   $("#note").onchange = (e) => act(null, async () => { await api(`/submissions/${id}`, { method: "PATCH", body: { override_note: e.target.value } }); toast("Note saved."); });
 }
 

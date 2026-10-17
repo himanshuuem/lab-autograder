@@ -59,7 +59,7 @@ make smoke
 2. Open an assignment and go to **Questions and tests**. Grading reads the sample input/output from the assignment PDF you attached in Classroom. Check them, fix anything misread, and add **hidden** tests for edge cases.
 3. Press **Grade all submissions**. A progress bar shows each student being graded.
 4. In **Results**, each row is a student. The small squares are test cases (green passed, red failed, hatched didn't run). A **yellow edge** means the student needs your review. Use the filter chips to see only those.
-5. Click a student to see their code, each test's input, expected and actual output (wrong lines in red), the output they pasted in the PDF, and what was repaired. **Set score** overrides the automatic score; **Mark as reviewed** clears the yellow edge.
+5. Click a student to see their code, each test's input, expected and actual output (wrong lines in red), the output they pasted in the PDF, and what was repaired. **Set score** overrides the automatic score; **Mark as reviewed** clears the yellow edge. **Feedback for the student** has a ready-written comment (score, failed tests with input, expected and actual output, compiler errors); press **Copy** and paste it into the student's private comment in Classroom. Hidden tests show only passed or failed, and review flags and your own note are never included. The CSV export has the same text in a `feedback` column.
 6. **Similarity** lists suspicious pairs. Open one to compare side by side, then **Mark as fine** or **Confirm copying**. Scores are never lowered automatically for similarity.
 7. **Export CSV**, or **Publish grades** as draft or returned grades in Classroom.
 
