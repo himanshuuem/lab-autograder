@@ -423,11 +423,16 @@ function histogram(scores, max) {
   const bins = new Array(10).fill(0);
   scores.forEach((s) => bins[Math.min(9, Math.floor((s / max) * 10))]++);
   const top = Math.max(1, ...bins);
-  const w = 30, gap = 4;
-  return `<svg viewBox="0 0 ${10 * (w + gap)} 64" role="img" aria-label="Score distribution">
+  const w = 30, gap = 4, base = 54, tall = 36;   // room above the tallest bar for its count
+  const h = (b) => Math.max(b ? 2 : 0, (b / top) * tall);
+  return `<div class="hist-head"><span>Score distribution</span><span>${scores.length} student${scores.length === 1 ? "" : "s"}</span></div>
+    <svg viewBox="0 0 ${10 * (w + gap) - gap} 72" role="img" aria-label="Score distribution: ${bins.map((b, i) => `${b} between ${fmt((i * max) / 10)} and ${fmt(((i + 1) * max) / 10)}`).join(", ")}">
     <defs><linearGradient id="hist-g" x1="0" y1="0" x2="0" y2="1"><stop offset="0"/><stop offset="1"/></linearGradient></defs>
-    ${bins.map((b, i) => `<rect style="--i:${i}" x="${i * (w + gap)}" y="${50 - (b / top) * 46}" width="${w}" height="${Math.max(b ? 2 : 0, (b / top) * 46)}" rx="2"><title>${b} student(s) between ${fmt((i * max) / 10)} and ${fmt(((i + 1) * max) / 10)}</title></rect>`).join("")}
-    <text x="0" y="62">0</text><text x="${10 * (w + gap) - 4}" y="62" text-anchor="end">${fmt(max)}</text></svg>`;
+    ${bins.map((b, i) => `<rect style="--i:${i}" x="${i * (w + gap)}" y="${base - h(b)}" width="${w}" height="${h(b)}" rx="2"><title>${b} student(s) between ${fmt((i * max) / 10)} and ${fmt(((i + 1) * max) / 10)}</title></rect>
+      ${b ? `<text class="cnt" x="${i * (w + gap) + w / 2}" y="${base - h(b) - 4}" text-anchor="middle">${b}</text>` : ""}`).join("")}
+    <line x1="0" x2="${10 * (w + gap) - gap}" y1="${base + 0.5}" y2="${base + 0.5}"/>
+    <text x="0" y="70">0</text><text x="${(10 * (w + gap) - gap) / 2}" y="70" text-anchor="middle">${fmt(max / 2)}</text>
+    <text x="${10 * (w + gap) - gap}" y="70" text-anchor="end">${fmt(max)}</text></svg>`;
 }
 
 function stripCells(st) {
