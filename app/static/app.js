@@ -756,28 +756,91 @@ function renderTests(el, a) {
 }
 
 // ------------------------------------------------------------------ similarity
+// "2025ITB065 SATYAM_KUMAR" -> { name: "Satyam Kumar", roll: "2025ITB065" }
+function person(raw) {
+  const m = /^(\S*\d\S*)\s+(.+)$/.exec((raw || "").trim());
+  let name = (m ? m[2] : raw || "").replace(/_+/g, " ").replace(/\s+/g, " ").trim();
+  if (name === name.toUpperCase()) name = name.toLowerCase().replace(/\b\p{L}/gu, (c) => c.toUpperCase());
+  return { name, roll: m ? m[1] : "" };
+}
+// one entry per pair of students, with every question they share
+function pairGroups(pairs) {
+  const by = new Map();
+  pairs.forEach((p) => {
+    const key = [p.a.id, p.b.id].sort((x, y) => x - y).join("-");
+    if (!by.has(key)) by.set(key, { key, a: p.a, b: p.b, items: [] });
+    by.get(key).items.push(p);
+  });
+  return [...by.values()].map((g) => {
+    g.items.sort((x, y) => y.score - x.score);
+    g.score = g.items[0].score;
+    g.open = g.items.filter((p) => !p.verdict).length;
+    const vds = new Set(g.items.map((p) => p.verdict || ""));
+    g.state = g.open ? "open" : vds.has("confirmed") ? "confirmed" : "cleared";
+    g.short = g.items.every((p) => p.low_confidence);
+    return g;
+  }).sort((x, y) => (y.state === "open") - (x.state === "open") || y.score - x.score);   // to review first, then highest
+}
+const pct = (x) => `${Math.round(x * 100)}%`;
+function who(s) {
+  const p = person(s.name);
+  return `<span class="who2"><b>${esc(p.name)}</b>${p.roll ? `<span>${esc(p.roll)}</span>` : ""}</span>`;
+}
+
 function renderSimilarity(el, a, pairs) {
-  el.innerHTML = `<div class="note">Pairs whose code shares structure after renaming variables and removing comments. Patterns most of the class shares, and any starter code set in Settings, are ignored. A high score is a reason to look, not proof: talk to the students before acting.</div>
-    ${pairs.length ? `<div class="sheet pairs">${pairs.map((p) => `<div class="pair" data-href="#/p/${p.id}" tabindex="0" role="link">
-      <div class="pct">${Math.round(p.score * 100)}%</div>
-      <div><b>${esc(p.a.name)}</b> and <b>${esc(p.b.name)}</b><div class="muted small">Question ${esc(p.question)}${p.low_confidence ? ", short program so less certain" : ""}</div></div>
-      <div class="meter"><i style="width:${Math.round(p.score * 100)}%"></i></div>
-      <div class="vd">${p.verdict === "cleared" ? `<span class="flag green">Marked fine</span>` : p.verdict === "confirmed" ? `<span class="flag red">Copying confirmed</span>` : `<span class="flag mark">Not reviewed</span>`}</div>
-    </div>`).join("")}</div>`
-    : `<div class="sheet empty"><h2>No similar pairs</h2><p>${a.last_graded_at ? `No two students share more than ${Math.round(a.similarity_threshold * 100)}% of their code on any question.` : "Similarity is checked when you grade."}</p></div>`}`;
-  $$(".pair").forEach((d) => { d.onclick = () => (location.hash = d.dataset.href); d.onkeydown = (e) => e.key === "Enter" && d.click(); });
+  const groups = pairGroups(pairs);
+  const n = { open: 0, cleared: 0, confirmed: 0 };
+  groups.forEach((g) => n[g.state]++);
+  const f = state.simFilter && state.simFilter.aid === a.id ? state.simFilter : (state.simFilter = { aid: a.id, v: n.open ? "open" : "all" });
+  const chip = (v, t, c) => `<button class="chip ${f.v === v ? "on" : ""}" data-f="${v}">${t}<span class="n">${c}</span></button>`;
+  if (!pairs.length) {
+    el.innerHTML = `<div class="sheet empty"><h2>No similar code</h2><p>${a.last_graded_at ? `No two students share more than ${pct(a.similarity_threshold)} of their code on any question.` : "Similarity is checked when you grade."}</p></div>`;
+    return;
+  }
+  el.innerHTML = `
+    <div class="sim-head">
+      <p class="sim-lede"><b>${groups.length}</b> pair${groups.length === 1 ? "" : "s"} of students wrote similar code${n.open ? `, <b>${n.open}</b> still to review` : ", all reviewed"}.</p>
+      <details class="how"><summary>How is this measured?</summary>
+        <p>Code is compared after renaming variables and removing comments, so copied work still matches when it has been reworded. Patterns most of the class shares, and any starter code set in Settings, are ignored. Short programs match more easily, so they are marked "short". A high score is a reason to look, not proof: talk to the students before acting.</p></details>
+    </div>
+    <div class="chips">${chip("open", "To review", n.open)}${chip("cleared", "Marked fine", n.cleared)}${chip("confirmed", "Copying confirmed", n.confirmed)}${chip("all", "All", groups.length)}</div>
+    <div class="sheet sim-list" id="sim-list"></div>`;
+  const draw = () => {
+    const rows = groups.filter((g) => f.v === "all" || g.state === f.v);
+    $("#sim-list").innerHTML = rows.map((g) => `<a class="sim-row" href="#/p/${g.items[0].id}">
+        <span class="sim-pct ${g.score >= 0.9 ? "hi" : ""}">${pct(g.score)}</span>
+        <span class="sim-who">${who(g.a)}<span class="amp" aria-hidden="true">&amp;</span>${who(g.b)}</span>
+        <span class="sim-qs">${g.items.slice(0, 4).map((p) => `<span class="qchip">Q${esc(p.question)} · ${pct(p.score)}</span>`).join("")}${g.items.length > 4 ? `<span class="qchip more">+${g.items.length - 4}</span>` : ""}${g.short ? `<span class="short">short</span>` : ""}</span>
+        <span class="sim-state">${g.state === "cleared" ? `<span class="flag green">Marked fine</span>` : g.state === "confirmed" ? `<span class="flag red">Copying</span>` : ""}</span>
+        <span class="chev">${ICON.chevron}</span></a>`).join("")
+      || `<div class="none-found">${f.v === "open" ? "Every pair has been reviewed." : "No pairs here."}</div>`;
+  };
+  draw();
+  $$(".chips [data-f]", el).forEach((b) => (b.onclick = () => {
+    f.v = b.dataset.f;
+    $$(".chips [data-f]", el).forEach((x) => x.classList.toggle("on", x === b));
+    draw();
+  }));
 }
 
 async function viewPair(id) {
   const p = await api(`/similarity/${id}`);
+  const all = await api(`/assignments/${p.assignment_id}/similarity`);
+  const key = (x, y) => [x, y].sort((m, n) => m - n).join("-");
+  const siblings = all.filter((x) => key(x.a.id, x.b.id) === key(p.a.id, p.b.id)).sort((x, y) => String(x.question).localeCompare(String(y.question), undefined, { numeric: true }));
+  const A = person(p.a.name), B = person(p.b.name);
   const vd = (v, t, cls = "") => `<button class="btn ${cls}" data-v="${v}">${t}</button>`;
+  const decided = p.verdict === "cleared" ? `<span class="flag green">Marked fine</span>` : p.verdict === "confirmed" ? `<span class="flag red">Copying confirmed</span>` : "";
   view().innerHTML = `
-    <div class="crumb"><a href="#/a/${p.assignment_id}/similarity">Similarity</a></div>
-    <div class="topline"><div class="grow"><h1>${esc(p.a.name)} and ${esc(p.b.name)}</h1>
-      <div class="muted small" style="margin-top:6px">Question ${esc(p.question)}: ${Math.round(p.score * 100)}% of the shorter program matches${p.low_confidence ? " (short program, less certain)" : ""}. Highlighted lines share structure.</div></div>
-      <div class="actions">${p.verdict ? vd("", "Undo decision", "ghost") : ""}${vd("cleared", "Mark as fine")}${vd("confirmed", "Confirm copying", "danger")}</div></div>
-    <div class="side-by-side">${[p.a, p.b].map((s) => `<div class="sheet"><div class="qhead"><h3><a href="#/s/${s.id}">${esc(s.name)}</a></h3><span class="lang">${esc(LANG[s.language] || s.language || "")}</span></div>
-      <div style="padding:12px">${codeTable(s.code, s.lines)}</div></div>`).join("")}</div>`;
+    <div class="crumb"><a href="#/a/${p.assignment_id}/similarity">Similar code</a></div>
+    <div class="topline"><div class="grow"><h1>${esc(A.name)} &amp; ${esc(B.name)}</h1>
+      <div class="muted small" style="margin-top:8px">${esc([A.roll, B.roll].filter(Boolean).join(" · "))}${A.roll ? " · " : ""}Question ${esc(p.question)}: ${pct(p.score)} of the shorter program matches${p.low_confidence ? " (short program, less certain)" : ""}</div></div>
+      <div class="actions">${decided}${p.verdict ? vd("", "Undo", "ghost") : `${vd("cleared", "Mark as fine")}${vd("confirmed", "Confirm copying", "danger")}`}</div></div>
+    ${siblings.length > 1 ? `<div class="tabs" role="tablist">${siblings.map((x) => `<button class="tab ${x.id === p.id ? "on" : ""}" role="tab" aria-selected="${x.id === p.id}" data-pair="${x.id}">Q${esc(x.question)}<span class="n">${pct(x.score)}</span></button>`).join("")}</div>` : ""}
+    <div class="side-by-side">${[[p.a, A], [p.b, B]].map(([s, who]) => `<div class="sheet"><div class="qhead"><h3><a href="#/s/${s.id}">${esc(who.name)}</a></h3><span class="lang">${esc(LANG[s.language] || s.language || "")}</span></div>
+      <div style="padding:12px">${codeTable(s.code, s.lines, true)}</div></div>`).join("")}</div>
+    <p class="muted small" style="margin-top:12px"><span class="hit-key"></span>Marked lines share their structure with the other student's program.</p>`;
+  $$("[data-pair]").forEach((b) => (b.onclick = () => (location.hash = `#/p/${b.dataset.pair}`)));
   $$("[data-v]").forEach((b) => (b.onclick = () => act(b, async () => {
     await api(`/similarity/${id}`, { method: "PATCH", body: { verdict: b.dataset.v } });
     toast(b.dataset.v === "cleared" ? "Marked as fine. The flag is removed from both students." : b.dataset.v === "confirmed" ? "Copying confirmed." : "Decision undone.");
@@ -785,11 +848,11 @@ async function viewPair(id) {
   })));
 }
 
-function codeTable(code, hits = []) {
+function codeTable(code, hits = [], wrap = false) {
   const hit = new Set();
   (hits || []).forEach(([a, b]) => { for (let i = a; i <= b; i++) hit.add(i); });
   const lines = (code || "").replace(/\n$/, "").split("\n");
-  return `<div class="code"><table>${lines.map((l, i) => `<tr class="${hit.has(i + 1) ? "hit" : ""}"><td class="ln">${i + 1}</td><td>${esc(l) || " "}</td></tr>`).join("")}</table></div>`;
+  return `<div class="code${wrap ? " wrap" : ""}"><table>${lines.map((l, i) => `<tr class="${hit.has(i + 1) ? "hit" : ""}"><td class="ln">${i + 1}</td><td>${esc(l) || " "}</td></tr>`).join("")}</table></div>`;
 }
 
 // ------------------------------------------------------------------ settings

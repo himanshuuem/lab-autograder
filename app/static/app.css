@@ -643,6 +643,43 @@ kbd { font: 500 11px var(--font); color: var(--ink-3); background: var(--fill-2)
 .meter-sm i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--blue), var(--blue-2)); box-shadow: 0 0 10px rgba(99, 102, 241, 0.6); }
 .none-found .btn { margin-top: 12px; }
 
+/* ---------- similar code ---------- */
+.sim-head { display: grid; gap: 8px; margin-bottom: 16px; }
+.sim-lede { margin: 0; font-size: 15px; color: var(--ink-2); }
+.sim-lede b { color: var(--ink); font-weight: 600; }
+.how summary { cursor: pointer; font-size: 13px; color: var(--blue-3); width: fit-content; list-style: none; }
+.how summary::-webkit-details-marker { display: none; }
+.how summary::after { content: " ›"; display: inline-block; transition: transform var(--t); }
+.how[open] summary::after { transform: rotate(90deg); }
+.how p { margin: 8px 0 0; max-width: 72ch; font-size: 13px; color: var(--ink-2); }
+.chip .n { margin-left: 6px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.chip.on .n { color: var(--ink-2); }
+.sim-list { display: grid; gap: 4px; padding: 8px; }
+.sim-row { display: grid; grid-template-columns: 56px minmax(0, 1.3fr) minmax(0, 1fr) 104px 16px; gap: 16px; align-items: center;
+  padding: 12px 16px; border-radius: var(--r-lg); border: 1px solid transparent; color: var(--ink);
+  transition: background-color var(--t), border-color var(--t); }
+.sim-row:hover { background: var(--hover); border-color: var(--rule-2); text-decoration: none; }
+.sim-row:hover .chev { color: var(--ink); transform: translateX(2px); }
+.sim-row .chev { color: var(--ink-3); transition: transform var(--t), color var(--t); }
+.sim-pct { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.sim-pct.hi { color: var(--mark); }
+.sim-who { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.sim-who .amp { color: var(--ink-3); font-size: 13px; flex: none; }
+.who2 { display: grid; min-width: 0; }
+.who2 b { font-weight: 500; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.who2 span { font-size: 12px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.sim-qs { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; min-width: 0; }
+.qchip { font-size: 12px; color: var(--ink-2); padding: 0 8px; line-height: 20px; border-radius: 6px; background: var(--fill-2); border: 1px solid var(--rule);
+  font-variant-numeric: tabular-nums; white-space: nowrap; }
+.qchip.more { color: var(--ink-3); }
+.sim-qs .short { font-size: 12px; color: var(--ink-3); margin-left: 4px; }
+.sim-state { display: flex; justify-content: flex-end; }
+/* the pair view: lighter marks, and long lines wrap so both programs read side by side */
+.code.wrap td:not(.ln) { white-space: pre-wrap; word-break: break-word; }
+.code.wrap tr.hit td { background: rgba(251, 191, 36, 0.05); }
+.code.wrap tr.hit td.ln { box-shadow: inset 2px 0 0 var(--mark); color: var(--mark); opacity: 1; }
+.hit-key { display: inline-block; width: 2px; height: 12px; background: var(--mark); margin-right: 8px; vertical-align: -1px; }
+
 /* ---------- responsive ---------- */
 @media (max-width: 980px) {
   .shell { grid-template-columns: 1fr; }
@@ -671,6 +708,11 @@ kbd { font: 500 11px var(--font); color: var(--ink-3); background: var(--fill-2)
   .override { justify-content: flex-start; }
   .register .hide-sm { display: none; }
   .pairs .pair { grid-template-columns: 60px 1fr; }
+  .sim-row { grid-template-columns: 48px minmax(0, 1fr) 16px; gap: 8px 12px; padding: 12px; }
+  .sim-who { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .sim-who .amp { display: none; }
+  .sim-qs { grid-column: 2; grid-row: 2; }
+  .sim-state { display: none; }
   .pairs .pair .meter, .pairs .pair .vd { display: none; }
   .search { max-width: none; margin-left: 0; flex-basis: 100%; }
   .toast { left: 16px; right: 16px; bottom: 16px; max-width: none; }
