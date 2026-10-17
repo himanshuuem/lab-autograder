@@ -643,6 +643,29 @@ kbd { font: 500 11px var(--font); color: var(--ink-3); background: var(--fill-2)
 .meter-sm i { display: block; height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--blue), var(--blue-2)); box-shadow: 0 0 10px rgba(99, 102, 241, 0.6); }
 .none-found .btn { margin-top: 12px; }
 
+/* ---------- results table: one value per question, one status ---------- */
+.results th.q, .results td.q { text-align: center; white-space: nowrap; width: 1%; padding-left: 12px; padding-right: 12px; }
+.results td:first-child { white-space: nowrap; }
+.results td.num, .results th.num { width: 1%; }
+.results .name { font-weight: 500; }
+.results .email { font-variant-numeric: tabular-nums; }
+.qres { font-size: 13px; font-variant-numeric: tabular-nums; color: var(--ink-2); white-space: nowrap; }
+.qres b { font-weight: 600; }
+.qres.ok { color: var(--pass); }
+.qres.part { color: var(--mark); }
+.qres.bad { color: var(--fail); }
+.qres.none { color: var(--ink-3); }
+.status { display: flex; align-items: center; gap: 4px 8px; flex-wrap: wrap; min-width: 160px; }
+.status .flag { margin: 0; }
+.status .why { flex-basis: 100%; font-size: 12px; color: var(--ink-3); max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sort { font: inherit; letter-spacing: inherit; text-transform: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 4px; transition: color var(--t); }
+.sort:hover { color: var(--ink); }
+.sort::after { content: "↕"; opacity: .35; font-size: 10px; }
+.sort[aria-sort="ascending"]::after { content: "↑"; opacity: 1; }
+.sort[aria-sort="descending"]::after { content: "↓"; opacity: 1; }
+.sort[aria-sort="ascending"], .sort[aria-sort="descending"] { color: var(--ink-2); }
+
 /* ---------- similar code ---------- */
 .sim-head { display: grid; gap: 8px; margin-bottom: 16px; }
 .sim-lede { margin: 0; font-size: 15px; color: var(--ink-2); }

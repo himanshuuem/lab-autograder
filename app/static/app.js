@@ -604,18 +604,31 @@ function histogram(scores, max) {
     <text x="${10 * (w + gap) - gap}" y="70" text-anchor="end">${fmt(max)}</text></svg>`;
 }
 
-function stripCells(st) {
-  if (st.compile === "MISSING") return `<span class="cell m" title="No code for this question"></span>`;
+// one question's result as a single short value: "11/13", "Doesn't compile", "—"
+function qResult(st) {
+  if (st.compile === "MISSING") return `<span class="qres none" title="No code for this question">—</span>`;
+  if (st.compile === "COMPILE_ERROR") return `<span class="qres bad">Doesn't compile</span>`;
   if (!st.runs.length) {
-    const why = st.compile === "NO_TESTS" ? "No tests" : st.compile === "UNKNOWN_LANGUAGE" ? "Language unknown" : st.compile;
-    return `<span class="cell n" title="${esc(why)}"></span>`;
+    const why = st.compile === "NO_TESTS" ? "No tests" : st.compile === "UNKNOWN_LANGUAGE" ? "Language unknown" : "Not run";
+    return `<span class="qres none">${why}</span>`;
   }
-  return st.runs.map((p, i) => {
-    const s = st.statuses[i];
-    const cls = s === "NOT_RUN" ? "x" : p ? "p" : "f";
-    const tip = s === "NOT_RUN" ? (st.compile === "COMPILE_ERROR" ? "Doesn't compile" : "Not run") : p ? `Test ${i + 1} passed` : `Test ${i + 1}: ${STATUS_TEXT[s] || s}`;
-    return `<span class="cell ${cls}" title="${esc(tip)}"></span>`;
-  }).join("");
+  const ok = st.runs.filter(Boolean).length, n = st.runs.length;
+  const cls = ok === n ? "ok" : ok === 0 ? "bad" : "part";
+  const tip = st.runs.map((p, i) => `Test ${i + 1}: ${p ? "passed" : STATUS_TEXT[st.statuses[i]] || st.statuses[i]}`).join("\n");
+  return `<span class="qres ${cls}" title="${esc(tip)}"><b>${ok}</b>/${n}</span>`;
+}
+// what the row needs from you, in one place; the reasons stay small
+function rowStatus(r) {
+  const late = r.late ? `<span class="flag blue">Late</span>` : "";
+  if (r.status === "NO_SUBMISSION") return `<span class="flag">Not submitted</span>`;
+  if (r.status === "ERROR" && r.override_score === null) return `<span class="flag red">Couldn't grade</span>${late}`;
+  if (r.needs_review && !r.reviewed) {
+    const why = [...new Set(r.flags.filter((f) => !["LATE", "NOT_SUBMITTED", "COMPILE_ERROR", "MISSING_QUESTION"].includes(f.code))
+      .map((f) => (FLAGS[f.code] || [f.code])[0].toLowerCase()))];
+    return `<span class="flag mark">Needs review</span>${late}${why.length ? `<span class="why" title="${esc(r.flags.map((f) => f.msg).join("\n"))}">${esc(why.join(", "))}</span>` : ""}`;
+  }
+  if (r.reviewed) return `<span class="flag green">Reviewed</span>${late}`;
+  return late;
 }
 
 function renderResults(el, a, data) {
@@ -628,8 +641,11 @@ function renderResults(el, a, data) {
   }
   const graded = rows.filter((r) => r.final_score !== null && r.status !== "NO_SUBMISSION");
   const avg = graded.length ? graded.reduce((s, r) => s + r.final_score, 0) / graded.length : null;
-  const toReview = rows.filter((r) => r.needs_review && !r.reviewed).length;
-  const missing = rows.filter((r) => r.status === "NO_SUBMISSION").length;
+  const isReview = (r) => r.needs_review && !r.reviewed;
+  const isMissing = (r) => r.status === "NO_SUBMISSION";
+  const toReview = rows.filter(isReview).length;
+  const missing = rows.filter(isMissing).length;
+  const filters = [["all", "Everyone", rows.length], ["review", "Needs review", toReview], ["done", "Reviewed", rows.filter((r) => r.reviewed).length], ["missing", "Not submitted", missing]];
   el.innerHTML = `
     <div class="sheet summary">
       <div><div class="v"><span data-count="${graded.length}">${graded.length}</span><span class="muted" style="font-size:15px;font-weight:500"> / ${rows.length}</span></div><div class="k">graded</div></div>
@@ -639,38 +655,43 @@ function renderResults(el, a, data) {
       <div class="hist">${histogram(a.scores, a.max_points)}</div>
     </div>
     <div class="chips" role="group" aria-label="Filter">
-      ${[["all", "Everyone"], ["review", "Needs review"], ["flagged", "Flagged"], ["missing", "Not submitted"]].map(([k, t], i) => `<button class="chip ${i ? "" : "on"}" data-f="${k}">${t}</button>`).join("")}
+      ${filters.map(([k, t, n], i) => `<button class="chip ${i ? "" : "on"}" data-f="${k}">${t}<span class="n">${n}</span></button>`).join("")}
       <input class="search" type="text" placeholder="Find a student" aria-label="Find a student">
     </div>
-    <div class="sheet table-wrap"><table class="register">
-      <thead><tr><th>Student</th>${data.labels.map((l) => `<th>Q${esc(l)}</th>`).join("")}<th class="num">Score</th><th class="hide-sm">Flags</th></tr></thead>
-      <tbody id="reg"></tbody></table></div>
-    <p class="muted small" style="margin-top:10px"><span class="cell p" style="vertical-align:-2px"></span> passed
-      <span class="cell f" style="vertical-align:-2px;margin-left:10px"></span> failed
-      <span class="cell x" style="vertical-align:-2px;margin-left:10px"></span> not run
-      <span class="cell m" style="vertical-align:-2px;margin-left:10px"></span> no code for this question.
-      A yellow edge marks students who need your review.</p>`;
-  let filter = "all", q = "", first = state.moved;
+    <div class="sheet table-wrap"><table class="register results">
+      <thead><tr><th><button class="sort" data-sort="name">Student</button></th>${data.labels.map((l) => `<th class="q">Q${esc(l)}</th>`).join("")}
+        <th class="num"><button class="sort" data-sort="score">Score</button></th><th class="hide-sm">Status</th></tr></thead>
+      <tbody id="reg"></tbody></table></div>`;
+  let filter = "all", q = "", sort = { by: "name", dir: 1 }, first = state.moved;
+  const keyOf = { name: (r) => person(r.student.name).name.toLowerCase(), score: (r) => (isMissing(r) ? -1 : r.final_score ?? -1) };
   const draw = () => {
     const shown = rows.filter((r) => {
       if (q && !(r.student.name + r.student.email).toLowerCase().includes(q)) return false;
-      if (filter === "review") return r.needs_review && !r.reviewed;
-      if (filter === "flagged") return r.flags.some((f) => !["LATE", "NOT_SUBMITTED"].includes(f.code));
-      if (filter === "missing") return r.status === "NO_SUBMISSION";
+      if (filter === "review") return isReview(r);
+      if (filter === "done") return r.reviewed;
+      if (filter === "missing") return isMissing(r);
       return true;
-    });
-    $("#reg").innerHTML = shown.map((r) => `<tr class="row ${r.needs_review && !r.reviewed ? "review" : ""}" data-href="#/s/${r.id}">
-      <td><div class="name">${esc(r.student.name)}${r.reviewed ? ` <span class="flag green">Reviewed</span>` : ""}</div><div class="email">${esc(r.student.email)}</div></td>
-      ${r.strip.map((st) => `<td><span class="strip">${stripCells(st)}</span>${st.language ? `<span class="lang">${esc(LANG[st.language] || st.language)}</span>` : ""}</td>`).join("")}
-      <td class="num"><span class="score ${r.override_score !== null ? "over" : ""}" ${r.override_score !== null ? `title="Changed by you (automatic: ${fmt(r.auto_score)})"` : ""}>${r.status === "ERROR" ? `<span class="flag red">Error</span>` : fmt(r.final_score)}</span><span class="score"><span class="of"> / ${fmt(a.max_points)}</span></span></td>
-      <td class="hide-sm">${r.flags.map(flagChip).join("")}</td></tr>`).join("")
+    }).sort((x, y) => { const kx = keyOf[sort.by](x), ky = keyOf[sort.by](y); return (kx < ky ? -1 : kx > ky ? 1 : 0) * sort.dir; });
+    $$(".sort").forEach((b) => b.setAttribute("aria-sort", b.dataset.sort === sort.by ? (sort.dir > 0 ? "ascending" : "descending") : "none"));
+    $("#reg").innerHTML = shown.map((r) => {
+      const who = person(r.student.name);
+      return `<tr class="row ${isReview(r) ? "review" : ""}" data-href="#/s/${r.id}">
+      <td title="${esc(r.student.email)}"><div class="name">${esc(who.name)}</div>${who.roll ? `<div class="email">${esc(who.roll)}</div>` : ""}</td>
+      ${r.strip.map((st) => `<td class="q">${isMissing(r) ? `<span class="qres none">—</span>` : qResult(st)}</td>`).join("")}
+      <td class="num">${isMissing(r) ? `<span class="qres none">—</span>` : `<span class="score ${r.override_score !== null ? "over" : ""}" ${r.override_score !== null ? `title="Changed by you (automatic: ${fmt(r.auto_score)})"` : ""}>${fmt(r.final_score)}</span><span class="score"><span class="of"> / ${fmt(a.max_points)}</span></span>`}</td>
+      <td class="hide-sm"><span class="status">${rowStatus(r)}</span></td></tr>`;
+    }).join("")
       || `<tr><td colspan="${3 + data.labels.length}" class="muted" style="padding:24px;text-align:center">Nobody matches this filter.</td></tr>`;
     if (first && !calm()) $$("#reg tr").forEach((tr, i) => { if (i < 16) { tr.style.setProperty("--i", i); tr.classList.add("enter"); } });
     first = false;
     rowLinks();
   };
-  $$(".chip").forEach((c) => (c.onclick = () => { $$(".chip").forEach((x) => x.classList.remove("on")); c.classList.add("on"); filter = c.dataset.f; draw(); }));
-  $(".search").oninput = (e) => { q = e.target.value.toLowerCase(); draw(); };
+  $$(".chip", el).forEach((c) => (c.onclick = () => { $$(".chip", el).forEach((x) => x.classList.remove("on")); c.classList.add("on"); filter = c.dataset.f; draw(); }));
+  $$(".sort", el).forEach((b) => (b.onclick = () => {
+    sort = sort.by === b.dataset.sort ? { by: sort.by, dir: -sort.dir } : { by: b.dataset.sort, dir: b.dataset.sort === "score" ? -1 : 1 };
+    draw();
+  }));
+  $(".search", el).oninput = (e) => { q = e.target.value.toLowerCase(); draw(); };
   draw();
 }
 
