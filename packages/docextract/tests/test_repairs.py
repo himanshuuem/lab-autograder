@@ -144,6 +144,22 @@ def test_a_commented_out_line_that_wrapped():
     assert repair(plain)[0] == plain
 
 
+def test_a_sentence_comment_that_wrapped():
+    # SK Assignment 3: compiler messages and notes typed as // comments, wrapped by the page width
+    code = ('class M { int f(double t) {\n'
+            '    //Prog.java:17: error: incompatible types: possible lossy conversion from double\n'
+            'to int\n'
+            '    //now changing both types to double in the Answer class method\n'
+            'calculate the method works\n'
+            '    return 1;\n} }')
+    out, rep = repair(code)
+    assert "// to int\n" in out and "// calculate the method works\n" in out and rep["wrapped_comment_joined"] == 2
+    # code after a comment is untouched, even a statement split over lines
+    for ok in ("class M { void f() {\n    // pick one\n    else x = 1;\n} }",
+               "class M { void f() {\n    // the total\n    int total =\n        a + b;\n} }"):
+        assert repair(ok)[0] == ok
+
+
 def test_comment_opened_after_code_is_left_alone():
     code = "import java.util.*; /* the imports\n * we need */\nclass A { }\n"
     assert repair(code) == (code, Counter())

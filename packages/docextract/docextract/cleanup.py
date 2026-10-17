@@ -375,6 +375,14 @@ def _uncapitalise_line_starts(code: str, declared: set, repairs: Counter) -> str
 _JAVA_START = re.compile(r"^\s*(?:(?:public|private|protected|abstract|final|static)\s+)*(?:class|interface|enum)\s+\w|^\s*import\s+[\w.]+")
 
 
+# only words: `to int`, `calculate the method works`
+_PROSE_TAIL = re.compile(r"^[A-Za-z][A-Za-z']*(?:[ ,]+[A-Za-z][A-Za-z']*)+[.,]?$")
+_JAVA_WORDS = {"else", "do", "try", "finally", "return", "new", "throw", "case", "default", "int", "long",
+               "short", "byte", "float", "double", "char", "boolean", "void", "var", "String", "public",
+               "private", "protected", "static", "final", "abstract", "class", "interface", "enum", "import",
+               "package", "extends", "implements", "throws", "synchronized"}
+
+
 def repair_java(code: str, repairs: Counter) -> str:
     """Fix what copying Java out of a PDF or a screenshot does to it:
     - VS Code's "Run | Debug" above main, a roll number from the page header (2025ITB085)
@@ -397,6 +405,12 @@ def repair_java(code: str, repairs: Counter) -> str:
             repairs["wrapped_comment_joined"] += 1
             continue
         open_parens = 0
+        if (out and out[-1].strip().startswith("//") and _PROSE_TAIL.match(s)
+                and s.split()[0] not in _JAVA_WORDS):
+            # the end of a sentence typed as a // comment, wrapped onto the next line
+            out.append(line[:len(line) - len(line.lstrip())] + "// " + s)
+            repairs["wrapped_comment_joined"] += 1
+            continue
         if s.startswith("//"):
             body = s.lstrip("/").strip()
             if re.match(r"[\w.]+\s*(?:\(|=)", body) and not body.endswith((";", "{", "}")):
