@@ -98,6 +98,15 @@ const ICON = {
   calendar: svg('<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>', 13),
   users: svg('<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>', 13),
   book: svg('<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M8 7h8M8 11h6"/>', 20),
+  file: svg('<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>'),
+  home: svg('<path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>'),
+  pulse: svg('<path d="M3 12h4l3-8 4 16 3-8h4"/>'),
+  shield: svg('<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>'),
+  refresh: svg('<path d="M21 12a9 9 0 0 1-15.5 6.2L3 16"/><path d="M3 21v-5h5"/><path d="M3 12a9 9 0 0 1 15.5-6.2L21 8"/><path d="M21 3v5h-5"/>'),
+  panel: svg('<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/>'),
+  out: svg('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>'),
+  inbox: svg('<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z"/>', 14),
+  check: svg('<path d="M20 6 9 17l-5-5"/>', 14),
 };
 
 // ------------------------------------------------------------------ vocabulary
@@ -245,6 +254,104 @@ async function checkServices() {
   if (st) st.textContent = state.svc;
 }
 
+// ------------------------------------------------------------------ collapsible sidebar
+const store = {
+  get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* private mode: not remembered */ } },
+};
+const wide = matchMedia("(min-width: 981px)");
+function applyCollapse() {
+  const on = wide.matches && store.get("lg-collapsed") === "1";
+  $("#app").classList.toggle("collapsed", on);
+  const b = $("#collapse");
+  b.setAttribute("aria-pressed", String(on));
+  b.dataset.tip = on ? "Expand sidebar" : "Collapse sidebar";
+  b.setAttribute("aria-label", b.dataset.tip);
+}
+$("#collapse").addEventListener("click", () => {
+  store.set("lg-collapsed", store.get("lg-collapsed") === "1" ? "0" : "1");
+  applyCollapse();
+  placePill();
+});
+wide.addEventListener("change", applyCollapse);
+applyCollapse();
+
+// ------------------------------------------------------------------ command palette (⌘K / Ctrl+K)
+const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+$("#cmdk-key").textContent = isMac ? "⌘K" : "Ctrl K";
+$("#open-cmdk").dataset.tip = `Search (${isMac ? "⌘K" : "Ctrl K"})`;
+const cmdk = { items: [], shown: [], at: 0, back: null };
+function cmdkItems() {
+  const go = (h) => () => (location.hash = h);
+  const items = [];
+  state.courses.forEach((c) => c.assignments.forEach((a) => items.push({
+    group: "Assignments", icon: ICON.file, title: a.title, sub: c.name,
+    hint: a.to_review ? `${a.to_review} to review` : "", run: go(`#/a/${a.id}`) })));
+  items.push({ group: "Pages", icon: ICON.home, title: "Assignments overview", run: go("#/") });
+  items.push({ group: "Pages", icon: ICON.pulse, title: "Service status", run: go("#/status") });
+  if (state.me && state.me.role === "admin") items.push({ group: "Pages", icon: ICON.shield, title: "Admin", run: go("#/admin") });
+  items.push({ group: "Actions", icon: ICON.refresh, title: "Refresh from Classroom", run: () => $("#sync").click() });
+  items.push({ group: "Actions", icon: ICON.panel, title: "Collapse or expand the sidebar", run: () => $("#collapse").click() });
+  items.push({ group: "Actions", icon: ICON.out, title: "Sign out", run: () => signOut() });
+  return items;
+}
+function cmdkDraw() {
+  const words = $("#cmdk-q").value.toLowerCase().split(/\s+/).filter(Boolean);
+  const hay = (it) => `${it.title} ${it.sub || ""} ${it.group}`.toLowerCase();
+  cmdk.shown = cmdk.items.filter((it) => words.every((w) => hay(it).includes(w)));
+  if (words.length) cmdk.shown.sort((x, y) => (y.title.toLowerCase().startsWith(words[0]) - x.title.toLowerCase().startsWith(words[0])));
+  cmdk.at = Math.min(cmdk.at, Math.max(0, cmdk.shown.length - 1));
+  let last = "";
+  $("#cmdk-list").innerHTML = cmdk.shown.map((it, i) => {
+    const head = !words.length && it.group !== last ? `<div class="cmdk-group" role="presentation">${it.group}</div>` : "";
+    last = it.group;
+    return `${head}<div class="cmdk-item ${i === cmdk.at ? "on" : ""}" role="option" id="ck-${i}" data-i="${i}" aria-selected="${i === cmdk.at}">
+      ${it.icon}<span class="ct">${esc(it.title)}</span>${it.hint ? `<span class="flag mark">${esc(it.hint)}</span>` : ""}${it.sub ? `<span class="cs">${esc(it.sub)}</span>` : ""}</div>`;
+  }).join("") || `<div class="cmdk-empty">Nothing matches “${esc($("#cmdk-q").value)}”.</div>`;
+  $("#cmdk-q").setAttribute("aria-activedescendant", cmdk.shown.length ? `ck-${cmdk.at}` : "");
+  const on = $(".cmdk-item.on");
+  if (on) on.scrollIntoView({ block: "nearest" });
+}
+function openCmdk() {
+  if (!state.me || $("#app").classList.contains("hidden")) return;
+  cmdk.back = document.activeElement;
+  cmdk.items = cmdkItems();
+  cmdk.at = 0;
+  $("#cmdk-q").value = "";
+  $("#cmdk").classList.remove("hidden");
+  cmdkDraw();
+  $("#cmdk-q").focus();
+}
+function closeCmdk() {
+  $("#cmdk").classList.add("hidden");
+  if (cmdk.back && document.contains(cmdk.back)) cmdk.back.focus();
+}
+function runCmdk(i) {
+  const it = cmdk.shown[i];
+  if (!it) return;
+  closeCmdk();
+  it.run();
+}
+$("#open-cmdk").addEventListener("click", openCmdk);
+$("#cmdk-q").addEventListener("input", () => { cmdk.at = 0; cmdkDraw(); });
+$("#cmdk-q").addEventListener("keydown", (e) => {
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    const n = cmdk.shown.length;
+    if (n) { cmdk.at = (cmdk.at + (e.key === "ArrowDown" ? 1 : -1) + n) % n; cmdkDraw(); }
+  } else if (e.key === "Enter") { e.preventDefault(); runCmdk(cmdk.at); }
+});
+$("#cmdk-list").addEventListener("click", (e) => { const it = e.target.closest(".cmdk-item"); if (it) runCmdk(+it.dataset.i); });
+$("#cmdk-list").addEventListener("mousemove", (e) => {
+  const it = e.target.closest(".cmdk-item");
+  if (it && +it.dataset.i !== cmdk.at) { cmdk.at = +it.dataset.i; $$(".cmdk-item").forEach((x) => { x.classList.toggle("on", x === it); x.setAttribute("aria-selected", x === it); }); }
+});
+$("#cmdk").addEventListener("mousedown", (e) => { if (e.target.id === "cmdk") closeCmdk(); });
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); $("#cmdk").classList.contains("hidden") ? openCmdk() : closeCmdk(); }
+  else if (e.key === "Escape" && !$("#cmdk").classList.contains("hidden")) { e.preventDefault(); closeCmdk(); }
+});
+
 // ------------------------------------------------------------------ router
 function stopPoll() { if (state.poll) { clearInterval(state.poll); state.poll = null; } }
 async function render() {
@@ -295,6 +402,7 @@ function viewHome() {
         <label><span class="sr">Sort</span><select id="h-sort">${opt("due-desc", "Newest due date", f.sort)}${opt("due-asc", "Oldest due date", f.sort)}
           ${opt("title", "Title A–Z", f.sort)}${opt("review", "Most to review", f.sort)}</select></label>
       </div></div>
+    ${bento()}
     ${state.courses.map((c) => {
       const graded = c.assignments.filter((a) => a.graded).length, n = c.assignments.length;
       const pct = n ? Math.round((100 * graded) / n) : 0;
@@ -324,13 +432,59 @@ function viewHome() {
         <span class="counter"><b>${a.turned_in}</b>/${a.submissions} submissions</span>
         <span class="slot">${a.graded ? `<span class="flag green">Graded</span>` : `<span class="flag slate">Not graded</span>`}</span>
         <span class="chev">${ICON.chevron}</span></a>`).join("")
-        || `<div class="none-found">${c.assignments.length ? "No assignments match." : "No assignments in this course yet."}</div>`;
+        || (c.assignments.length ? `<div class="none-found">No assignments in this course match your search or filter.<br>
+              <button class="btn small" data-clear>Clear search and filters</button></div>`
+            : `<div class="none-found">No assignments in this course yet. New ones appear when you refresh from Classroom.</div>`);
     });
+    $$("[data-clear]").forEach((b) => (b.onclick = () => {
+      Object.assign(f, { q: "", status: "all" });
+      $("#h-q").value = ""; $("#h-status").value = "all";
+      draw();
+    }));
   };
   draw();
   $("#h-q").oninput = (e) => { f.q = e.target.value; draw(); };
   $("#h-status").onchange = (e) => { f.status = e.target.value; draw(); };
   $("#h-sort").onchange = (e) => { f.sort = e.target.value; draw(); };
+}
+// the bento row: what needs attention first, then the totals
+function bento() {
+  const all = state.courses.flatMap((c) => c.assignments.map((a) => ({ ...a, course: c.name })));
+  const review = all.reduce((n, a) => n + a.to_review, 0);
+  const subs = all.reduce((n, a) => n + a.submissions, 0), turned = all.reduce((n, a) => n + a.turned_in, 0);
+  const graded = all.filter((a) => a.graded).length;
+  const students = state.courses.reduce((n, c) => n + c.students, 0);
+  const queue = all.filter((a) => a.to_review).sort((x, y) => y.to_review - x.to_review).slice(0, 4);
+  const pct = (a, b) => (b ? Math.round((100 * a) / b) : 0);
+  return `<div class="bento">
+    <section class="sheet tile wide ${review ? "review" : ""}">
+      <div class="k">${ICON.inbox}Waiting for your review</div>
+      <div class="v" data-count="${review}">${review}</div>
+      ${queue.length ? `<div class="queue">${queue.map((a) => `<a href="#/a/${a.id}/results"><span class="qt"><b>${esc(a.title)}</b><span>${esc(a.course)}</span></span>
+          <span class="flag mark">${a.to_review}</span>${ICON.chevron}</a>`).join("")}</div>`
+        : `<div class="hint">Nothing flagged. Every graded submission has been checked.</div>`}
+    </section>
+    <section class="sheet tile accent">
+      <div class="k">${ICON.check}Assignments graded</div>
+      <div class="v"><span data-count="${graded}">${graded}</span><small> / ${all.length}</small></div>
+      <div class="meter-sm"><i style="width:${pct(graded, all.length)}%"></i></div>
+    </section>
+    <section class="sheet tile">
+      <div class="k">${ICON.file}Submissions turned in</div>
+      <div class="v"><span data-count="${turned}">${turned}</span><small> / ${subs}</small></div>
+      <div class="hint">${pct(turned, subs)}% of all expected work</div>
+    </section>
+    <section class="sheet tile">
+      <div class="k">${ICON.users}Students</div>
+      <div class="v" data-count="${students}">${students}</div>
+      <div class="hint">across ${state.courses.length} course${state.courses.length === 1 ? "" : "s"}</div>
+    </section>
+    <section class="sheet tile">
+      <div class="k">${ICON.search}Find anything</div>
+      <div class="hint" style="margin-top:0">Jump to an assignment or action from anywhere.</div>
+      <button class="btn small" style="margin-top:auto;align-self:flex-start" onclick="openCmdk()">Open search <kbd>${isMac ? "⌘K" : "Ctrl K"}</kbd></button>
+    </section>
+  </div>`;
 }
 // "2026-10-17" or "2026-10-17 23:59" -> "17 Oct 2026"
 function dueText(d) {
