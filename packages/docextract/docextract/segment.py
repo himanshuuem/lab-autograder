@@ -171,7 +171,11 @@ def _split_screenshots(sec: Section) -> None:
 _NUM_HEAD = re.compile(r"^\s*(\d{1,2})\s*[.):\-]\s*(?P<rest>.*)$")
 # where a new program starts in a document with no headings
 _PROGRAM_START = re.compile(r"^\s*(?:import\s|package\s|#\s*include|(?:(?:public|final|abstract)\s+)*"
-                            r"(?:class|interface|enum)\s+\w)")
+                            r"(?:class|interface|enum)\s+\w"
+                            # the same auto-capitalised by Word (`Public class Main {`, `Class Shape {`),
+                            # only when it reads as a declaration, not a sentence ("Class diagram")
+                            r"|(?:(?:[Pp]ublic|[Ff]inal|[Aa]bstract)\s+)*(?:[Cc]lass|[Ii]nterface|[Ee]num)\s+"
+                            r"[A-Za-z_]\w*\s*(?:\{|extends\b|implements\b|<|$))")
 _COMMENT_HEAD = re.compile(r"^\s*(?://+|#+|/\*+)\s*(?P<body>.*?)\s*(?:\*+/)?\s*$")
 _STRINGS = re.compile(r'"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)\'')
 

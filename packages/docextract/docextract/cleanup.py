@@ -107,7 +107,7 @@ _CAP_C = re.compile(
     r"^(\s*)(Int|Void|Float|Double|Char|Long|Short|Unsigned|Bool|Return|For|If|"
     r"Else|While|Do|Switch|Case|Break|Continue|Printf|Scanf|Cout|Cin|Using|"
     r"Struct|Typedef|Const|Static|Public|Private|Protected|Class|Import|Package|"
-    r"Try|Catch|Throw|New|Delete|Free|Malloc|Puts|Gets|Template|Auto)(?=[\s(<{:;*&])")
+    r"Try|Catch|Throw|New|Delete|Free|Malloc|Puts|Gets|Template|Auto|Super)(?=[\s(<{:;*&])")
 
 
 def fix_autocapitalisation(code: str, language: str | None, repairs: Counter) -> str:
@@ -115,8 +115,9 @@ def fix_autocapitalisation(code: str, language: str | None, repairs: Counter) ->
     if rx is None:
         return code
     out = []
-    # a class the student named Auto, Delete or Template keeps its capital
-    classes = set(re.findall(r"\b(?:class|interface|enum|struct)\s+([A-Z]\w*)", code))
+    # a class the student named Auto, Delete or Template keeps its capital (Word may
+    # have capitalised the keyword too: `Class Auto extends Vehicle`)
+    classes = set(re.findall(r"\b(?:[Cc]lass|[Ii]nterface|[Ee]num|[Ss]truct)\s+([A-Z]\w*)", code))
     for line in code.split("\n"):
         m = rx.match(line)
         if m:

@@ -111,6 +111,18 @@ def make_pdf(path, blocks, header: str | None = None, footer_pages: bool = True)
     return str(path)
 
 
+def make_outlined(src_pdf, dst_pdf) -> str:
+    """Draw every glyph as a vector path, as some "print to PDF" tools do: the pages
+    look typed but have no text layer and no pictures."""
+    src = pymupdf.open(src_pdf)
+    out = pymupdf.open()
+    for page in src:
+        svg = page.get_svg_image(text_as_path=True)
+        out.insert_pdf(pymupdf.open(stream=pymupdf.open(stream=svg.encode(), filetype="svg").convert_to_pdf()))
+    out.save(dst_pdf)
+    return str(dst_pdf)
+
+
 def make_scanned(src_pdf, dst_pdf, dpi: int = 200) -> str:
     """Rasterise every page: the result has images only, no text layer."""
     src = pymupdf.open(src_pdf)

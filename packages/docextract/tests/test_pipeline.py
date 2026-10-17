@@ -1,7 +1,7 @@
 """End-to-end: build a realistic PDF, extract, then compile and RUN the extracted code."""
 import pytest
 from conftest import needs_tesseract, run_program
-from pdfgen import make_pdf, make_scanned
+from pdfgen import make_outlined, make_pdf, make_scanned
 from samples import CASES, C_SUM, JAVA_REV, PY_FACT, PY_CLASS
 
 from docextract import extract_submission
@@ -169,6 +169,18 @@ def test_scanned_pdf_uses_ocr_and_always_needs_review(tmp):
     assert p.needs_review
     assert "scanf" in p.code and "printf" in p.code
     assert p.claimed_output == "Sum = 7"
+
+
+@needs_tesseract
+def test_text_drawn_as_vector_shapes_is_read_by_ocr(tmp):
+    # two real Assignment 5 PDFs: typed code, but every letter a vector path (no text layer)
+    text_pdf = make_pdf(tmp / "t.pdf", [
+        ("h", "Question 1"), ("code", C_SUM, "mono_spaces"), ("p", "Output: Sum = 7")])
+    res = extract_submission(make_outlined(text_pdf, tmp / "outlined.pdf"))
+    assert res.ocr_pages == [1]
+    p = res.programs[0]
+    assert p.language == "c" and p.ocr and p.needs_review
+    assert "scanf" in p.code and "printf" in p.code
 
 
 def test_ocr_never_skips_scans(tmp):

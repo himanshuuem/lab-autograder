@@ -80,6 +80,14 @@ def test_txt_per_question_with_number_line_and_pasted_output(tmp):
     assert q2.entrypoint == "CircleDemo" and q2.claimed_output == "Area : 12.56"
 
 
+def test_a_long_line_in_a_code_file_is_kept_whole(tmp):
+    # a 200-character println was cut at the page edge (a real Assignment 5 submission)
+    msg = "employee salary with bonus: " + "x" * 160
+    src = java("Main", f'System.out.println("{msg}" + 1);')
+    _, r = extract(tmp, [("a5q1.java", src.encode())])
+    assert f'System.out.println("{msg}" + 1);' in r.programs[0].code
+
+
 def test_output_marked_by_a_comment(tmp):
     src = CIRCLE + "// OUTPUT..\nArea : 12.56\n"
     _, r = extract(tmp, [("q1.java", src.encode()), ("q2.java", CAR.encode())])

@@ -257,7 +257,13 @@ def _needs_ocr(page, lines: list[Line]) -> bool:
     """A scanned or photographed page: almost no text, and pictures cover most of it.
     (A screenshot alone on a page is read as a screenshot instead.)"""
     n_chars = sum(len(ln.text) for ln in lines)
-    if n_chars >= 25 or not page.get_images():
+    if n_chars >= 25:
+        return False
+    # typed text drawn as vector shapes ("print to PDF" with fonts as outlines): no text
+    # layer, but a path per glyph (a short page of code is still 50+)
+    if len(page.get_drawings()) >= 50:
+        return True
+    if not page.get_images():
         return False
     area = page.rect.width * page.rect.height
     covered = sum((pymupdf.Rect(i["bbox"]) & page.rect).get_area() for i in page.get_image_info())

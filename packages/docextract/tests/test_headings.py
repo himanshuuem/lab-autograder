@@ -244,3 +244,17 @@ def test_braces_on_their_own_line_are_kept():
     rep = Counter()
     out = drop_java_outside_classes("Student s[] = new Student[100];\n" + ALLMAN + "\nO/P;\nok\n", rep)
     assert out.rstrip() == ALLMAN and rep["outside_class_removed"] == 3
+
+
+def test_no_headings_and_word_capitalised_class_lines_still_split(tmp):
+    # a real Assignment 5 PDF: no question headings, and Word wrote `Class Shape {` and
+    # `Public class Assignment5_2 {` at the start of answers 2 and 3
+    def answer(n, cls, pub):
+        return (f"{cls} Shape{n} {{\n    double area() {{ return {n}; }}\n}}\n"
+                f"{pub} class Assignment5_{n} {{\n    public static void main(String[] args) {{\n"
+                f"        System.out.println(new Shape{n}().area());\n    }}\n}}")
+    blocks = [("p", "OOP Assignment 5"), ("code", answer(1, "class", "public"), "mono_offset"),
+              ("code", answer(2, "Class", "Public"), "mono_offset"), ("code", answer(3, "Class", "Public"), "mono_offset")]
+    r = extract_submission(make_pdf(tmp / "s.pdf", blocks))
+    assert [p.question for p in r.programs] == ["1", "2", "3"]
+    assert all(p.code.count("class Assignment5") == 1 for p in r.programs)

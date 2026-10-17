@@ -154,6 +154,21 @@ def test_a_class_named_like_a_c_keyword_keeps_its_capital():
     assert cleanup.fix_autocapitalisation(code, "java", Counter()) == code
 
 
+def test_a_class_named_like_a_keyword_keeps_its_capital_when_word_capitalised_class():
+    # Word turned `class Auto` into `Class Auto` too (a real Assignment 5 submission)
+    code = "Class Auto extends Vehicle {\n    Auto(double d) {\n        Super(d);\n    }\n}"
+    fixed = cleanup.fix_autocapitalisation(code, "java", Counter())
+    assert fixed == "class Auto extends Vehicle {\n    Auto(double d) {\n        super(d);\n    }\n}"
+
+
+def test_word_capitalised_super_is_fixed_even_when_every_call_is_capitalised():
+    code = "class Car extends Vehicle {\n    Car(double d) {\n        Super(d);\n    }\n}"
+    fixed = cleanup.fix_autocapitalisation(code, "java", Counter())
+    assert "        super(d);" in fixed
+    named = "class Super { }\nclass B extends Super {\n    B() {\n        Super(1);\n    }\n}"   # their own class
+    assert cleanup.fix_autocapitalisation(named, "java", Counter()) == named
+
+
 def test_a_statement_split_over_short_lines(tmp):
     code = ('public class Bank {\n    public static void main(String[] args) {\n        Bank account1 =\n'
             '            new Bank(\n                "S101", "Rahul", 20000,\n                "Kolkata", 5, 5000);\n    }\n'

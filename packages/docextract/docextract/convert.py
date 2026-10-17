@@ -150,10 +150,13 @@ def _lines_to_pdf(lines: list[tuple[str, str]]) -> bytes:
     """Render (font, text) lines: 'helv' for labels and prose, 'cour' for code."""
     doc = pymupdf.open()
     size, lh, top, bottom = 8.5, 11, 40, 800
+    # wide enough for the longest line (Courier is 0.6 em a character): text past the
+    # page edge is lost when the PDF is read back. PDF pages stop at 14400 pt.
+    width = min(14400, max(842, 72 + 0.6 * size * max((len(l) for _, l in lines), default=0)))
     page, y = None, bottom + 1   # forces the first page
     for font, line in lines:
         if y > bottom:
-            page = doc.new_page(width=842, height=842)   # wide, so long code lines fit
+            page = doc.new_page(width=width, height=842)
             y = top
         if line.strip():
             page.insert_text((36, y), line, fontsize=size, fontname=font)
