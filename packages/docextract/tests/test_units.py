@@ -102,6 +102,8 @@ def test_detect_language(code, lang):
     ("class Helper {}\nclass Main {\n public static void main(String[] a){}\n}", "Main"),
     ("public final class Q1 { }", "Q1"),
     ("int x;", None),
+    # OCR read `class q4` as `class 94`: not a name Java can run, so it isn't chosen
+    ("class 94 {\n public static void main(String[] a){}\n}", None),
 ])
 def test_java_entrypoint(code, name):
     assert java_entrypoint(code) == name

@@ -43,9 +43,9 @@ def detect_language(code: str) -> tuple[str | None, dict[str, int]]:
     return (best if scores[best] >= 3 else None), scores
 
 
-_JAVA_PUBLIC = re.compile(r"\bpublic\s+(?:final\s+|abstract\s+)*class\s+(\w+)")
-_JAVA_ANY_CLASS = re.compile(r"\bclass\s+(\w+)")
-_JAVA_SCAN = re.compile(r"\b(?:class|interface|enum|record)\s+(\w+)|\bstatic\s+void\s+main\s*\(|[{}]")
+_JAVA_PUBLIC = re.compile(r"\bpublic\s+(?:final\s+|abstract\s+)*class\s+([A-Za-z_]\w*)")
+_JAVA_ANY_CLASS = re.compile(r"\bclass\s+([A-Za-z_]\w*)")
+_JAVA_SCAN = re.compile(r"\b(?:class|interface|enum|record)\s+([A-Za-z_]\w*)|\bstatic\s+void\s+main\s*\(|[{}]")
 _JAVA_NOISE = re.compile(r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\\n])*"|\'(?:\\.|[^\'\\\n])*\'')
 
 
