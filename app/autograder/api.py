@@ -242,12 +242,25 @@ def ser_sub_row(s: Submission, labels: list[str]) -> dict:
 @api.get("/courses")
 def courses(db=DB, user: User = USER):
     """The courses this teacher teaches (an admin sees everyone's on the admin page)."""
+    aids = [a.id for c in user.courses for a in c.assignments]
+    # per assignment: submissions, turned in, waiting for review; per course: students
+    counts = {aid: (n, t, r) for aid, n, t, r in db.execute(select(
+        Submission.assignment_id, func.count(),
+        func.count().filter(Submission.status != "NO_SUBMISSION"),
+        func.count().filter(Submission.needs_review, ~Submission.reviewed),
+    ).where(Submission.assignment_id.in_(aids)).group_by(Submission.assignment_id)).all()} if aids else {}
+    students = dict(db.execute(select(Assignment.course_id, func.count(func.distinct(Submission.student_id)))
+                               .join(Submission, Submission.assignment_id == Assignment.id)
+                               .where(Assignment.id.in_(aids)).group_by(Assignment.course_id)).all()) if aids else {}
     out = []
     for c in sorted(user.courses, key=lambda c: c.name):
+        rows = []
+        for a in sorted(c.assignments, key=lambda a: (a.due or "", a.title), reverse=True):
+            n, t, r = counts.get(a.id, (0, 0, 0))
+            rows.append({"id": a.id, "title": a.title, "due": a.due, "graded": a.last_graded_at is not None,
+                         "submissions": n, "turned_in": t, "to_review": r})
         out.append({"id": c.id, "ext_id": c.ext_id, "name": c.name, "section": c.section, "link": c.link,
-                    "assignments": [{"id": a.id, "title": a.title, "due": a.due,
-                                     "graded": a.last_graded_at is not None}
-                                    for a in sorted(c.assignments, key=lambda a: (a.due or "", a.title), reverse=True)]})
+                    "students": students.get(c.id, 0), "assignments": rows})
     return out
 
 

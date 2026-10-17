@@ -82,12 +82,23 @@ function placePill() {
 }
 
 async function act(btn, fn) {
-  const label = btn ? btn.textContent : "";
+  const label = btn ? btn.innerHTML : "";    // the button may hold an icon
   if (btn) { btn.disabled = true; }
   try { return await fn(); }
   catch (e) { toast(e.message, true); }
-  finally { if (btn) { btn.disabled = false; btn.textContent = label; } }
+  finally { if (btn) { btn.disabled = false; btn.innerHTML = label; } }
 }
+
+// ------------------------------------------------------------------ icons
+const svg = (d, n = 16) => `<svg width="${n}" height="${n}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
+const ICON = {
+  search: svg('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>'),
+  chevron: svg('<path d="m9 18 6-6-6-6"/>'),
+  updown: svg('<path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/>', 14),
+  calendar: svg('<rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>', 13),
+  users: svg('<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9M16 3.1a4 4 0 0 1 0 7.8"/>', 13),
+  book: svg('<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20V3H6.5A2.5 2.5 0 0 0 4 5.5z"/><path d="M8 7h8M8 11h6"/>', 20),
+};
 
 // ------------------------------------------------------------------ vocabulary
 const FLAGS = {
@@ -168,11 +179,23 @@ $("#pending-out").addEventListener("click", signOut);
 $("#pending-reload").addEventListener("click", () => location.reload());
 function renderMe() {
   const m = state.me;
-  $("#me").innerHTML = `${m.picture ? `<img src="${esc(m.picture)}" alt="" referrerpolicy="no-referrer">`
-    : `<span class="avatar">${esc((m.name || m.email)[0].toUpperCase())}</span>`}
-    <span class="who" title="${esc(m.email)}">${esc(m.name || m.email)}${m.role === "admin" ? ` <span class="role">admin</span>` : ""}</span>`;
+  $("#me").innerHTML = `<span class="av">${m.picture ? `<img src="${esc(m.picture)}" alt="" referrerpolicy="no-referrer">`
+    : `<span class="avatar">${esc((m.name || m.email)[0].toUpperCase())}</span>`}</span>
+    <span class="who"><b title="${esc(m.email)}">${esc(m.name || m.email)}${m.role === "admin" ? ` <span class="role">admin</span>` : ""}</b>
+    <span id="me-status">${esc(state.svc || "Checking services")}</span></span>${ICON.updown}`;
+  $("#me").setAttribute("aria-label", `Account: ${m.name || m.email}`);
+  $("#me-mail").textContent = m.email;
   $("#admin-link").classList.toggle("hidden", m.role !== "admin");
 }
+// the account popover above the profile card
+function setMenu(open) {
+  $("#menu").classList.toggle("open", open);
+  $("#me").setAttribute("aria-expanded", String(open));
+}
+$("#me").addEventListener("click", (e) => { e.stopPropagation(); setMenu(!$("#menu").classList.contains("open")); });
+document.addEventListener("click", (e) => { if (!e.target.closest("#menu")) setMenu(false); });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#menu").classList.contains("open")) { setMenu(false); $("#me").focus(); } });
+$("#menu").addEventListener("click", (e) => { if (e.target.closest(".mi")) setMenu(false); });
 async function refreshAdminCount() {
   if (!state.me || state.me.role !== "admin") return;
   try {
@@ -190,17 +213,19 @@ async function loadCourses() {
 function renderSidebar() {
   const cur = location.hash;
   $("#courses").innerHTML = state.courses.length ? state.courses.map((c) => `
-    <div class="course-name">${esc(c.name)}</div>
+    <div class="course-name ${c.assignments.some((a) => cur.startsWith(`#/a/${a.id}`)) ? "on" : ""}">${esc(c.name)}</div>
     ${c.section ? `<div class="course-sec">${esc(c.section)}</div>` : ""}
     ${c.assignments.map((a) => `<a class="nav-a ${cur.startsWith(`#/a/${a.id}`) ? "on" : ""}" href="#/a/${a.id}">
-      ${esc(a.title)}<span class="due">${a.due ? "Due " + esc(a.due) : "No due date"}${a.graded ? "" : ", not graded yet"}</span></a>`).join("")
+      ${esc(a.title)}<span class="due">${a.due ? "Due " + esc(dueText(a.due)) : "No due date"}${a.graded ? "" : ", not graded yet"}</span></a>`).join("")
       || `<div class="course-sec">No assignments</div>`}`).join("")
     : `<p class="muted small" style="padding:10px">No courses yet. Refresh from Classroom to load them.</p>`;
   placePill();
 }
-$("#sync").addEventListener("click", (e) => act(e.target, async () => {
-  e.target.textContent = "Refreshing…";
-  await api("/courses/sync", { method: "POST" });
+$("#sync").addEventListener("click", (e) => act(e.currentTarget, async () => {
+  const b = $("#sync");
+  b.classList.add("busy");
+  $("span", b).textContent = "Refreshing…";
+  try { await api("/courses/sync", { method: "POST" }); } finally { b.classList.remove("busy"); }
   await loadCourses();
   toast("Courses and assignments updated from Classroom.");
   if (!location.hash || location.hash === "#/") render();
@@ -208,11 +233,16 @@ $("#sync").addEventListener("click", (e) => act(e.target, async () => {
 
 async function checkServices() {
   const el = $("#svc");
+  let ok = false;
   try {
     const s = await api("/status");
-    const ok = s.classroom.ok && s.sandbox.ok;
-    el.innerHTML = `<span class="dot ${ok ? "ok" : "bad"}"></span>${ok ? `Connected${s.classroom.mode === "demo" ? " (demo classroom)" : ""}` : "A service needs attention"}`;
-  } catch { el.innerHTML = `<span class="dot bad"></span>Status unavailable`; }
+    ok = s.classroom.ok && s.sandbox.ok;
+    state.svc = ok ? `Connected${s.classroom.mode === "demo" ? " (demo classroom)" : ""}` : "A service needs attention";
+  } catch { state.svc = "Status unavailable"; }
+  el.innerHTML = `<span class="dot ${ok ? "ok" : "bad"}"></span>${esc(state.svc)}`;
+  $("#profile").dataset.ok = ok ? "1" : "0";
+  const st = $("#me-status");
+  if (st) st.textContent = state.svc;
 }
 
 // ------------------------------------------------------------------ router
@@ -241,7 +271,7 @@ async function render() {
   countUp(v);
   v.focus({ preventScroll: true });
 }
-window.addEventListener("hashchange", render);
+window.addEventListener("hashchange", () => { setMenu(false); render(); });
 
 // ------------------------------------------------------------------ home
 function viewHome() {
@@ -253,16 +283,64 @@ function viewHome() {
     $("#first-sync").onclick = (e) => $("#sync").click();
     return;
   }
+  const f = state.home || (state.home = { q: "", status: "all", sort: "due-desc" });
+  const opt = (v, t, cur) => `<option value="${v}" ${v === cur ? "selected" : ""}>${t}</option>`;
   view().innerHTML = `<div class="topline"><div class="grow"><h1>Assignments</h1>
-    <p class="muted" style="margin:6px 0 0">Pick an assignment to grade, review, or publish.</p></div></div>
-    ${state.courses.map((c) => `<section class="sheet" style="margin-bottom:16px">
-      <div class="pad" style="border-bottom:1px solid var(--rule-2)"><h2>${esc(c.name)}</h2>${c.section ? `<div class="muted small">${esc(c.section)}</div>` : ""}</div>
-      <table class="register"><tbody>${c.assignments.map((a) => `<tr class="row" data-href="#/a/${a.id}">
-        <td class="name">${esc(a.title)}</td><td class="muted small">${a.due ? "Due " + esc(a.due) : ""}</td>
-        <td class="num">${a.graded ? `<span class="flag green">Graded</span>` : `<span class="flag">Not graded</span>`}</td></tr>`).join("")}
-      </tbody></table></section>`).join("")}`;
-  rowLinks();
+      <p class="lede">Pick an assignment to grade, review, or publish.</p></div>
+      <div class="toolbar">
+        <label class="searchbox">${ICON.search}<span class="sr">Search assignments</span>
+          <input type="text" id="h-q" placeholder="Search assignments" value="${esc(f.q)}" autocomplete="off"><kbd>/</kbd></label>
+        <label><span class="sr">Filter by status</span><select id="h-status">${opt("all", "All statuses", f.status)}${opt("todo", "Not graded", f.status)}
+          ${opt("graded", "Graded", f.status)}${opt("review", "Needs review", f.status)}</select></label>
+        <label><span class="sr">Sort</span><select id="h-sort">${opt("due-desc", "Newest due date", f.sort)}${opt("due-asc", "Oldest due date", f.sort)}
+          ${opt("title", "Title A–Z", f.sort)}${opt("review", "Most to review", f.sort)}</select></label>
+      </div></div>
+    ${state.courses.map((c) => {
+      const graded = c.assignments.filter((a) => a.graded).length, n = c.assignments.length;
+      const pct = n ? Math.round((100 * graded) / n) : 0;
+      return `<section class="sheet course-card">
+      <div class="course-head">
+        <div class="course-icon">${ICON.book}</div>
+        <div class="course-title"><h2>${esc(c.name)}</h2>
+          <div class="sub">${c.section ? `<span>${esc(c.section)}</span>` : ""}
+            <span class="badge">${ICON.users}${c.students} student${c.students === 1 ? "" : "s"}</span>
+            <span class="badge">${n} assignment${n === 1 ? "" : "s"}</span></div></div>
+        <div class="progress ${n && graded === n ? "full" : ""}" role="progressbar" aria-valuemin="0" aria-valuemax="${n}" aria-valuenow="${graded}" aria-label="Assignments graded">
+          <div class="lbl"><span>Graded</span><b>${graded}/${n}</b></div><div class="track"><i style="width:${pct}%"></i></div></div>
+      </div>
+      <div class="arows" data-course="${c.id}"></div></section>`;
+    }).join("")}`;
+  const draw = () => {
+    const q = f.q.trim().toLowerCase();
+    const keep = (a) => (!q || a.title.toLowerCase().includes(q)) && (f.status === "all"
+      || (f.status === "todo" && !a.graded) || (f.status === "graded" && a.graded) || (f.status === "review" && a.to_review > 0));
+    const by = { "due-desc": (x, y) => (y.due || "").localeCompare(x.due || ""), "due-asc": (x, y) => (x.due || "~").localeCompare(y.due || "~"),
+      title: (x, y) => x.title.localeCompare(y.title, undefined, { numeric: true }), review: (x, y) => y.to_review - x.to_review }[f.sort];
+    state.courses.forEach((c) => {
+      const rows = c.assignments.filter(keep).sort(by);
+      $(`.arows[data-course="${c.id}"]`).innerHTML = rows.map((a) => `<a class="arow" href="#/a/${a.id}">
+        <span class="t"><b>${esc(a.title)}</b><span class="meta"><span class="tag">${ICON.calendar}${a.due ? "Due " + esc(dueText(a.due)) : "No due date"}</span></span></span>
+        <span class="slot review">${a.to_review ? `<span class="flag mark">${a.to_review} to review</span>` : ""}</span>
+        <span class="counter"><b>${a.turned_in}</b>/${a.submissions} submissions</span>
+        <span class="slot">${a.graded ? `<span class="flag green">Graded</span>` : `<span class="flag slate">Not graded</span>`}</span>
+        <span class="chev">${ICON.chevron}</span></a>`).join("")
+        || `<div class="none-found">${c.assignments.length ? "No assignments match." : "No assignments in this course yet."}</div>`;
+    });
+  };
+  draw();
+  $("#h-q").oninput = (e) => { f.q = e.target.value; draw(); };
+  $("#h-status").onchange = (e) => { f.status = e.target.value; draw(); };
+  $("#h-sort").onchange = (e) => { f.sort = e.target.value; draw(); };
 }
+// "2026-10-17" or "2026-10-17 23:59" -> "17 Oct 2026"
+function dueText(d) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(d);
+  return m ? new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" }) : d;
+}
+// "/" jumps to the search box on the overview
+document.addEventListener("keydown", (e) => {
+  if (e.key === "/" && !e.target.closest("input, textarea, select, [contenteditable]") && $("#h-q")) { e.preventDefault(); $("#h-q").focus(); }
+});
 function rowLinks() { $$("tr[data-href]").forEach((tr) => tr.addEventListener("click", () => (location.hash = tr.dataset.href))); }
 
 // ------------------------------------------------------------------ assignment
@@ -277,7 +355,7 @@ async function viewAssignment(id, tab) {
       <div class="grow">
         <div class="crumb">${esc(a.course.name)}</div>
         <h1>${esc(a.title)}</h1>
-        <div class="muted small" style="margin-top:6px">${fmt(a.max_points)} points${a.due ? `, due ${esc(a.due)}` : ""}${a.last_graded_at ? `, last graded ${new Date(a.last_graded_at).toLocaleString()}` : ""}</div>
+        <div class="muted small" style="margin-top:6px">${fmt(a.max_points)} points${a.due ? `, due ${esc(dueText(a.due))}` : ""}${a.last_graded_at ? `, last graded ${new Date(a.last_graded_at).toLocaleString()}` : ""}</div>
       </div>
       <div class="actions">
         <button class="btn primary" id="grade">${a.last_graded_at ? "Grade again" : "Grade all submissions"}</button>

@@ -71,6 +71,12 @@ def test_full_flow(client):
 
     subs = client.get(f"/api/assignments/{aid}/submissions").json()
     assert subs["labels"] == ["1", "2"] and len(subs["rows"]) == 11
+    # the overview's counters
+    course = client.get("/api/courses").json()[0]
+    row = next(x for x in course["assignments"] if x["id"] == aid)
+    turned_in = sum(r["status"] != "NO_SUBMISSION" for r in subs["rows"])
+    assert course["students"] == 11 and row["submissions"] == 11 and row["turned_in"] == turned_in
+    assert row["to_review"] == sum(r["needs_review"] and not r["reviewed"] for r in subs["rows"])
     ananya = next(r for r in subs["rows"] if r["student"]["name"] == "Ananya Bose")
     assert ananya["final_score"] == 20
     assert ananya["strip"][0]["runs"] == [True, True, True]   # 2 sample + 1 hidden
