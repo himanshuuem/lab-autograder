@@ -7,11 +7,13 @@
   --glass: rgba(16, 17, 23, 0.72);
   --ink: #ededf0;
   --ink-2: #a1a6b4;
-  --ink-3: #6b7080;
+  --ink-3: #7d8292;                      /* 5.0:1 on --paper, 4.7:1 on cards (WCAG AA) */
   --rule: rgba(255, 255, 255, 0.08);
   --rule-2: rgba(255, 255, 255, 0.05);
   --hover: rgba(255, 255, 255, 0.05);
-  --blue: #6366f1;                       /* the accent: electric indigo */
+  --blue: #6366f1;                       /* the accent: electric indigo (glows, rings, indicators) */
+  --blue-fill: #5b5ef0;                  /* primary button fill: white text 4.9:1 */
+  --blue-fill-hover: #5558e8;            /* 5.3:1 */
   --blue-2: #818cf8;
   --blue-3: #a5b4fc;                     /* text on dark */
   --blue-soft: rgba(99, 102, 241, 0.14);
@@ -108,7 +110,7 @@ tr.enter { animation-duration: .45s; animation-delay: calc(120ms + var(--i, 0) *
 .brand:hover { text-decoration: none; }
 .brand b { font-size: 15px; font-weight: 700; letter-spacing: -0.02em; }
 .brand .tick, .login .tick { display: inline-grid; place-items: center; width: 28px; height: 28px; border-radius: 8px; flex: none;
-  background: linear-gradient(140deg, var(--blue-2), var(--blue)); color: #fff; font-size: 14px; font-weight: 700;
+  background: linear-gradient(140deg, var(--blue-fill), #4f46e5); color: #fff; font-size: 14px; font-weight: 700;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3), 0 0 0 1px rgba(99, 102, 241, 0.5), 0 6px 20px -4px rgba(99, 102, 241, 0.7); }
 .btn.sync { width: 100%; padding: 8px 16px; gap: 8px; color: var(--ink);
   background: linear-gradient(180deg, rgba(99, 102, 241, 0.18), rgba(99, 102, 241, 0.08));
@@ -161,7 +163,7 @@ tr.enter { animation-duration: .45s; animation-delay: calc(120ms + var(--i, 0) *
 .profile-btn:hover, .profile-btn[aria-expanded="true"] { background: rgba(255, 255, 255, 0.06); border-color: rgba(255, 255, 255, 0.14); }
 .profile-btn .av { position: relative; flex: none; }
 .profile-btn .av img, .profile-btn .av .avatar { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center;
-  background: linear-gradient(140deg, var(--blue-2), var(--blue)); color: #fff; font-weight: 700; font-size: 13px; }
+  background: linear-gradient(140deg, var(--blue-fill), #4f46e5); color: #fff; font-weight: 700; font-size: 13px; }
 .profile-btn .av::after { content: ""; position: absolute; right: -1px; bottom: -1px; width: 10px; height: 10px; border-radius: 50%;
   background: var(--ink-3); border: 2px solid #121319; }
 .profile[data-ok="1"] .profile-btn .av::after { background: var(--pass); box-shadow: 0 0 8px rgba(52, 211, 153, 0.8); }
@@ -209,9 +211,9 @@ a.btn:hover { text-decoration: none; }
 .btn:hover { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.16); }
 .btn:active { transform: scale(0.97); }
 .btn:disabled { opacity: .55; cursor: default; transform: none; }
-.btn.primary { background: var(--blue); border-color: rgba(129, 140, 248, 0.5); color: #fff;
+.btn.primary { background: var(--blue-fill); border-color: rgba(129, 140, 248, 0.5); color: #fff;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18), 0 4px 16px -4px rgba(99, 102, 241, 0.6); }
-.btn.primary:hover { background: #6d70f3; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 0 0 1px rgba(99, 102, 241, 0.35), 0 6px 24px -4px rgba(99, 102, 241, 0.8); }
+.btn.primary:hover { background: var(--blue-fill-hover); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2), 0 0 0 1px rgba(99, 102, 241, 0.35), 0 6px 24px -4px rgba(99, 102, 241, 0.8); }
 .btn.small { padding: 4px 12px; font-size: 13px; }
 .btn.ghost { border-color: transparent; background: transparent; color: var(--blue-3); box-shadow: none; }
 .btn.ghost:hover { background: var(--blue-soft); }
