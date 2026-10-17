@@ -107,6 +107,8 @@ const ICON = {
   out: svg('<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>'),
   inbox: svg('<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5.1 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.5-6.9A2 2 0 0 0 16.8 4H7.2a2 2 0 0 0-1.7 1.1z"/>', 14),
   check: svg('<path d="M20 6 9 17l-5-5"/>', 14),
+  sun: svg('<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>'),
+  moon: svg('<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>'),
 };
 
 // ------------------------------------------------------------------ vocabulary
@@ -276,6 +278,16 @@ $("#collapse").addEventListener("click", () => {
 wide.addEventListener("change", applyCollapse);
 applyCollapse();
 
+// ------------------------------------------------------------------ theme: system / light / dark
+function setTheme(t) {
+  if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+  else delete document.documentElement.dataset.theme;
+  store.set("lg-theme", t);
+  $$("[data-theme-pick]").forEach((b) => b.setAttribute("aria-checked", String(b.dataset.themePick === t)));
+}
+setTheme(store.get("lg-theme") || "system");
+$$("[data-theme-pick]").forEach((b) => b.addEventListener("click", (e) => { e.stopPropagation(); setTheme(b.dataset.themePick); }));
+
 // ------------------------------------------------------------------ command palette (⌘K / Ctrl+K)
 const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
 $("#cmdk-key").textContent = isMac ? "⌘K" : "Ctrl K";
@@ -292,6 +304,9 @@ function cmdkItems() {
   if (state.me && state.me.role === "admin") items.push({ group: "Pages", icon: ICON.shield, title: "Admin", run: go("#/admin") });
   items.push({ group: "Actions", icon: ICON.refresh, title: "Refresh from Classroom", run: () => $("#sync").click() });
   items.push({ group: "Actions", icon: ICON.panel, title: "Collapse or expand the sidebar", run: () => $("#collapse").click() });
+  const dark = document.documentElement.dataset.theme === "dark" || (!document.documentElement.dataset.theme && matchMedia("(prefers-color-scheme: dark)").matches);
+  items.push({ group: "Actions", icon: dark ? ICON.sun : ICON.moon, title: dark ? "Switch to light theme" : "Switch to dark theme", run: () => setTheme(dark ? "light" : "dark") });
+  if (document.documentElement.dataset.theme) items.push({ group: "Actions", icon: ICON.panel, title: "Use the system theme", run: () => setTheme("system") });
   items.push({ group: "Actions", icon: ICON.out, title: "Sign out", run: () => signOut() });
   return items;
 }

@@ -3,8 +3,12 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#0d0e12">
-  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0d0e12" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f6f7fb" media="(prefers-color-scheme: light)">
+  <meta name="color-scheme" content="dark light">
+  <script>/* apply the saved theme before the first paint */
+    try { var t = localStorage.getItem("lg-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}
+  </script>
   <title>Lab Grader</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' rx='3' fill='%236366f1'/><path d='M4 8.5l2.5 2.5L12 5' stroke='white' stroke-width='2' fill='none'/></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -67,6 +71,12 @@
           <div class="menu" id="menu" role="menu">
             <div class="mail" id="me-mail"></div>
             <a href="#/status" class="mi" role="menuitem" id="svc"><span class="dot"></span>Checking services</a>
+            <div class="theme-row"><span>Theme</span>
+              <div class="seg" role="radiogroup" aria-label="Theme">
+                <button role="radio" data-theme-pick="system" aria-checked="true">System</button>
+                <button role="radio" data-theme-pick="light" aria-checked="false">Light</button>
+                <button role="radio" data-theme-pick="dark" aria-checked="false">Dark</button>
+              </div></div>
             <hr>
             <a href="#" class="mi danger" role="menuitem" id="logout">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>
