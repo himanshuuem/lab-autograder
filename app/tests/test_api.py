@@ -221,3 +221,23 @@ def test_student_page_across_assignments(client):
     assert row["submission_id"] == ananya["id"] and row["final_score"] == ananya["final_score"]
     assert row["class_avg"] == pytest.approx(sum(graded) / len(graded), abs=0.01)
     assert client.get("/api/students/99999").status_code == 404
+
+
+def test_similarity_decided_a_group_at_a_time(client):
+    login(client)
+    client.post("/api/courses/sync")
+    aid = client.get("/api/courses").json()[0]["assignments"][0]["id"]
+    client.patch(f"/api/assignments/{aid}", json={"time_limit_s": 1.0})
+    client.post(f"/api/assignments/{aid}/grade")
+    run_jobs(client)
+    pairs = client.get(f"/api/assignments/{aid}/similarity").json()
+    assert pairs and client.get(f"/api/assignments/{aid}").json()["similar_open"] >= 1
+    r = client.post(f"/api/assignments/{aid}/similarity/verdict",
+                    json={"ids": [p["id"] for p in pairs], "verdict": "cleared"}).json()
+    assert r["changed"] == len(pairs)
+    assert {p["verdict"] for p in client.get(f"/api/assignments/{aid}/similarity").json()} == {"cleared"}
+    assert client.get(f"/api/assignments/{aid}").json()["similar_open"] == 0
+    rows = client.get(f"/api/assignments/{aid}/submissions").json()["rows"]
+    assert not any(f["code"] == "SIMILAR_CODE" for r in rows for f in r["flags"])
+    assert client.post(f"/api/assignments/{aid}/similarity/verdict",
+                       json={"ids": [], "verdict": "maybe"}).status_code == 400

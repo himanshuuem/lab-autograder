@@ -333,8 +333,23 @@ public class Main { public static void main(String[] x) { } }
     ("Name: Sayak Roll: 24 CGPA: 99.5", "Name: Sayak Roll: 24 CGPA: 9.5\n", True, False),
     ("Salary set successfully!", "Salary set successfully!\n100000.0\n", True, False),
     ("Brand: Tata\nSpeed: 120", "Brand: Tata\nSpeed: 120\nBrand: Ford\n", False, False),
+    # a whole terminal window read by OCR: prompts, title bar and noise around the right output
+    ("ei.) Crea ee eesk=400-C4-NT:~/2025/Assignment java |\n  Creating Manager object      4\n"
+     "  Employee constructor called |   ,\n  Manager Details\n  Name: Unknown   |\n   _ \\Employee ID: 9\n"
+     " \"Department: IT\n  student@desk-400:~/2025/Assignment_4$ nano prog4",
+     "Creating Manager object\nEmployee constructor called\nManager constructor called\nManager Details\n"
+     "Name: Unknown\nEmployee ID: 0\nSalary: 0.0\nDepartment: IT\n", True, False),
+    # a picture of the code editor, not of the output
+    ("J fourjava   14\n  void calculateResult(int marksi,\n  int total = a + b;\n  System.out.println(total);",
+     "Roll No: 101, Name: Alice\n", True, False),
+    # cropped to one line
+    ("student@desk:~/2025/a1$ java Main\n    Employee ID: 1341",
+     "Employee ID: 1341\nEmployee Name: siya\nSalary: 50000.0\n", True, False),
     # a different program's output, or invented numbers, is
     ("Area : 78.5\nCircumference : 31.4", "Brand: Tata\nSpeed: 120\n", True, True),
+    ("student@lab:~/java$ javac Main.java\n\nArea of Circle = 78.539816339974483\nArea of Rectangle = 50.0\n"
+     "Area of Triangle = 24.0", "AREA OF THE CIRCLE IS 0.7853981633974483\nAREA OF THE RECTANGLE IS 15.0\n"
+     "AREA OF THE TRIANGLE IS 12.0\n", True, True),
     ("Total balance: 5000\nWithdrawn: 200", "Total balance: 1000\nWithdrawn: 900\n", False, True),
 ])
 def test_shown_output_comparison(shown, prints, image, differs):

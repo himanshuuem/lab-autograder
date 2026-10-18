@@ -302,11 +302,60 @@ def _norm(text: str, ocr: bool) -> str:
     return t.translate(_OCR_LOOKALIKE).lower() if ocr else t
 
 
+# a line of code in a screenshot of the editor, not of the program's output
+_CODE_LINE = re.compile(r"[;{]\s*$|^\s*}|\b(?:public|private|static|void|class|import|System\.out|return)\b|^\s*(?:if|for|while)\s*\(")
+
+
+def _clean_lines(text: str) -> list[tuple[str, list[float]]]:
+    """The lines of a screenshot worth comparing: no terminal prompts, window titles or
+    OCR noise ("ei.) Crea ee eesk=400"), each as (its letters, its numbers)."""
+    from docextract.cleanup import is_terminal_noise
+    out = []
+    for ln in (text or "").splitlines():
+        t = ln.strip()
+        if not t or is_terminal_noise(t) or re.search(r"\w+@[\w.-]+.*[$#%]|[~/\\]\S*[$>]|\bjavac?\b|\bnano\b", t):
+            continue
+        letters = sum(c.isalnum() for c in t)
+        if letters < 4 or letters < 0.6 * len(t.replace(" ", "")):
+            continue
+        # a glyph or two at the window's edge, far from the text: "Creating object      4"
+        t = re.sub(r"^\S{1,2}\s{3,}|\s{3,}\S{1,2}$", "", t)
+        nums = [float(n) for tok in re.findall(r"\S*\d\S*", t)       # 18@ is 180; words keep their letters
+                for n in re.findall(r"\d+(?:\.\d+)?", tok.translate(_OCR_LOOKALIKE))]
+        out.append((re.sub(r"[^a-z]", "", t.lower()), nums))
+    return out
+
+
+def _screenshot_differs(shown: str, prints: str) -> bool:
+    """Line by line: a screenshot is a different program's output only when it shows at
+    least two clean lines the program never prints, and most of its lines are like that.
+    A cropped screenshot, a few misread lines, or a picture of the code are not."""
+    import difflib
+    if sum(bool(_CODE_LINE.search(ln)) for ln in shown.splitlines()) >= 2:
+        return False                                    # the editor, not the output
+    lines, real = _clean_lines(shown), [x for x in _clean_lines(prints) if x[0] or x[1]]
+    if len(lines) < 2 or not real:
+        return False
+
+    def same_numbers(a, b):     # 78.54 is not 0.785, whatever the letters around it
+        return all(any(abs(x - y) <= 0.01 * max(abs(x), abs(y)) + 1e-9 for y in b) for x in a)
+
+    def found(ln):
+        words, nums = ln
+        return any((words in w or w in words if words and w else words == w
+                    or difflib.SequenceMatcher(None, words, w).ratio() >= 0.75)
+                   and same_numbers(nums, ns) for w, ns in real)
+    missing = sum(not found(ln) for ln in lines)
+    return missing >= 2 and missing > len(lines) / 2
+
+
 def shown_output_differs(shown: str | None, prints: str, from_image: bool) -> bool:
     """Is the output the student showed clearly not what their code prints? A cropped
     screenshot (the start of the output) and OCR misreadings (18@ for 180) are not."""
     if not shown or not (prints or "").strip():
         return False
+    if from_image:
+        return _screenshot_differs(shown, prints)
     import difflib
     a, b = _norm(shown, from_image), _norm(prints, from_image)
     if not a or a in b:

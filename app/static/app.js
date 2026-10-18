@@ -127,6 +127,7 @@ const FLAGS = {
   NOT_PDF: ["Not a PDF", "red"],
   UNREADABLE_FILE: ["File can't be read", "red"],
   FILE_SKIPPED: ["A file was skipped", "mark"],
+  EARLIER_COPY: ["Earlier download used", "blue"],
   UNREADABLE_PDF: ["Unreadable PDF", "red"],
   NO_CODE: ["No code found", "red"],
 };
@@ -519,7 +520,7 @@ async function viewAssignment(id, tab) {
   const subs = tab === "results" ? await api(`/assignments/${id}/submissions`) : null;
   const pairs = tab === "similarity" ? await api(`/assignments/${id}/similarity`) : null;
   const total = Object.values(a.counts).reduce((x, y) => x + y, 0);
-  const tabs = [["results", "Results", total], ["tests", "Questions and tests", a.n_tests], ["similarity", "Similarity", null], ["settings", "Settings", null]];
+  const tabs = [["results", "Results", total], ["tests", "Questions and tests", a.n_tests], ["similarity", "Similarity", a.similar_open || null], ["settings", "Settings", null]];
   view().innerHTML = `
     <div class="topline">
       <div class="grow">
@@ -624,7 +625,7 @@ function rowStatus(r) {
   if (r.status === "NO_SUBMISSION") return `<span class="flag">Not submitted</span>`;
   if (r.status === "ERROR" && r.override_score === null) return `<span class="flag red">Couldn't grade</span>${late}`;
   if (r.needs_review && !r.reviewed) {
-    const why = [...new Set(r.flags.filter((f) => !["LATE", "NOT_SUBMITTED", "COMPILE_ERROR", "MISSING_QUESTION"].includes(f.code))
+    const why = [...new Set(r.flags.filter((f) => !["LATE", "NOT_SUBMITTED", "COMPILE_ERROR", "MISSING_QUESTION", "SIMILAR_CODE", "EARLIER_COPY"].includes(f.code))
       .map((f) => (FLAGS[f.code] || [f.code])[0].toLowerCase()))];
     return `<span class="flag mark">Needs review</span>${late}${why.length ? `<span class="why" title="${esc(r.flags.map((f) => f.msg).join("\n"))}">${esc(why.join(", "))}</span>` : ""}`;
   }
@@ -785,32 +786,42 @@ function person(raw) {
   if (name === name.toUpperCase()) name = name.toLowerCase().replace(/\b\p{L}/gu, (c) => c.toUpperCase());
   return { name, roll: m ? m[1] : "" };
 }
-// one entry per pair of students, with every question they share
-function pairGroups(pairs) {
-  const by = new Map();
-  pairs.forEach((p) => {
-    const key = [p.a.id, p.b.id].sort((x, y) => x - y).join("-");
-    if (!by.has(key)) by.set(key, { key, a: p.a, b: p.b, items: [] });
-    by.get(key).items.push(p);
-  });
-  return [...by.values()].map((g) => {
-    g.items.sort((x, y) => y.score - x.score);
-    g.score = g.items[0].score;
-    g.open = g.items.filter((p) => !p.verdict).length;
-    const vds = new Set(g.items.map((p) => p.verdict || ""));
-    g.state = g.open ? "open" : vds.has("confirmed") ? "confirmed" : "cleared";
-    g.short = g.items.every((p) => p.low_confidence);
-    return g;
-  }).sort((x, y) => (y.state === "open") - (x.state === "open") || y.score - x.score);   // to review first, then highest
-}
 const pct = (x) => `${Math.round(x * 100)}%`;
 function who(s) {
   const p = person(s.name);
   return `<span class="who2"><b>${esc(p.name)}</b>${p.roll ? `<span>${esc(p.roll)}</span>` : ""}</span>`;
 }
 
+// students who share code on one question: every pair of them linked, at any strength
+function simClusters(pairs) {
+  const parent = new Map();
+  const find = (k) => { while (parent.get(k) !== k) { parent.set(k, parent.get(parent.get(k))); k = parent.get(k); } return k; };
+  const key = (p, s) => `${p.question}|${s.id}`;
+  pairs.forEach((p) => {
+    [key(p, p.a), key(p, p.b)].forEach((k) => parent.has(k) || parent.set(k, k));
+    parent.set(find(key(p, p.a)), find(key(p, p.b)));
+  });
+  const by = new Map();
+  pairs.forEach((p) => {
+    const r = find(key(p, p.a));
+    if (!by.has(r)) by.set(r, { q: p.question, members: new Map(), items: [] });
+    const g = by.get(r);
+    g.items.push(p); g.members.set(p.a.id, p.a); g.members.set(p.b.id, p.b);
+  });
+  return [...by.values()].map((g) => {
+    g.items.sort((x, y) => y.score - x.score);
+    g.score = g.items[0].score;
+    g.open = g.items.filter((p) => !p.verdict).length;
+    g.state = g.open ? "open" : g.items.some((p) => p.verdict === "confirmed") ? "confirmed" : "cleared";
+    g.short = g.items.every((p) => p.low_confidence);
+    g.people = [...g.members.values()].sort((x, y) => person(x.name).name.localeCompare(person(y.name).name));
+    return g;
+  }).sort((x, y) => (y.state === "open") - (x.state === "open") || y.score - x.score
+    || String(x.q).localeCompare(String(y.q), undefined, { numeric: true }));
+}
+
 function renderSimilarity(el, a, pairs) {
-  const groups = pairGroups(pairs);
+  const groups = simClusters(pairs);
   const n = { open: 0, cleared: 0, confirmed: 0 };
   groups.forEach((g) => n[g.state]++);
   const f = state.simFilter && state.simFilter.aid === a.id ? state.simFilter : (state.simFilter = { aid: a.id, v: n.open ? "open" : "all" });
@@ -821,21 +832,40 @@ function renderSimilarity(el, a, pairs) {
   }
   el.innerHTML = `
     <div class="sim-head">
-      <p class="sim-lede"><b>${groups.length}</b> pair${groups.length === 1 ? "" : "s"} of students wrote similar code${n.open ? `, <b>${n.open}</b> still to review` : ", all reviewed"}.</p>
+      <p class="sim-lede"><b>${groups.length}</b> group${groups.length === 1 ? "" : "s"} of students wrote similar code${n.open ? `, <b>${n.open}</b> still to decide` : ", all decided"}. Similar code doesn't put students in "Needs review": decide here, a whole group at a time.</p>
       <details class="how"><summary>How is this measured?</summary>
-        <p>Code is compared after renaming variables and removing comments, so copied work still matches when it has been reworded. Patterns most of the class shares, and any starter code set in Settings, are ignored. Short programs match more easily, so they are marked "short". A high score is a reason to look, not proof: talk to the students before acting.</p></details>
+        <p>Code is compared question by question, after renaming variables and removing comments, so copied work still matches when it has been reworded. A group is every student linked to another by similar code on the same question. Patterns most of the class shares, and any starter code set in Settings, are ignored. Short programs match more easily, so they are marked "short". A high score is a reason to look, not proof: talk to the students before acting.</p></details>
     </div>
-    <div class="chips">${chip("open", "To review", n.open)}${chip("cleared", "Marked fine", n.cleared)}${chip("confirmed", "Copying confirmed", n.confirmed)}${chip("all", "All", groups.length)}</div>
+    <div class="chips">${chip("open", "To decide", n.open)}${chip("cleared", "Marked fine", n.cleared)}${chip("confirmed", "Copying confirmed", n.confirmed)}${chip("all", "All", groups.length)}</div>
     <div class="sheet sim-list" id="sim-list"></div>`;
+  const names = (g) => g.people.slice(0, 4).map((s) => esc(person(s.name).name)).join(", ") + (g.people.length > 4 ? ` and ${g.people.length - 4} more` : "");
   const draw = () => {
-    const rows = groups.filter((g) => f.v === "all" || g.state === f.v);
-    $("#sim-list").innerHTML = rows.map((g) => `<a class="sim-row" href="#/p/${g.items[0].id}">
+    const rows = groups.map((g, i) => [g, i]).filter(([g]) => f.v === "all" || g.state === f.v);
+    $("#sim-list").innerHTML = rows.map(([g, i]) => `<div class="sim-group" data-g="${i}">
+      <button class="sim-row" aria-expanded="false">
         <span class="sim-pct ${g.score >= 0.9 ? "hi" : ""}">${pct(g.score)}</span>
-        <span class="sim-who">${who(g.a)}<span class="amp" aria-hidden="true">&amp;</span>${who(g.b)}</span>
-        <span class="sim-qs">${g.items.slice(0, 4).map((p) => `<span class="qchip">Q${esc(p.question)} · ${pct(p.score)}</span>`).join("")}${g.items.length > 4 ? `<span class="qchip more">+${g.items.length - 4}</span>` : ""}${g.short ? `<span class="short">short</span>` : ""}</span>
+        <span class="sim-who"><span class="who2"><b>Question ${esc(g.q)}: ${g.people.length} students</b><span>${names(g)}</span></span></span>
+        <span class="sim-qs"><span class="qchip">${g.items.length} pair${g.items.length === 1 ? "" : "s"}</span>${g.short ? `<span class="short">short</span>` : ""}</span>
         <span class="sim-state">${g.state === "cleared" ? `<span class="flag green">Marked fine</span>` : g.state === "confirmed" ? `<span class="flag red">Copying</span>` : ""}</span>
-        <span class="chev">${ICON.chevron}</span></a>`).join("")
-      || `<div class="none-found">${f.v === "open" ? "Every pair has been reviewed." : "No pairs here."}</div>`;
+        <span class="chev">${ICON.chevron}</span></button>
+      <div class="sim-pairs hidden">
+        ${g.items.map((p) => `<a class="sim-pair" href="#/p/${p.id}"><span class="sim-pct sm ${p.score >= 0.9 ? "hi" : ""}">${pct(p.score)}</span>${who(p.a)}<span class="amp" aria-hidden="true">&amp;</span>${who(p.b)}${p.verdict ? `<span class="flag ${p.verdict === "cleared" ? "green" : "red"}">${p.verdict === "cleared" ? "Fine" : "Copying"}</span>` : ""}</a>`).join("")}
+        <div class="sim-acts">${g.state === "open" || g.open
+          ? `<button class="btn small" data-v="cleared">Mark the group as fine</button><button class="btn small danger" data-v="confirmed">Confirm copying for the group</button>`
+          : `<button class="btn small ghost" data-v="">Undo the decision</button>`}
+          <span class="muted small">Open a pair to compare the code side by side.</span></div>
+      </div></div>`).join("")
+      || `<div class="none-found">${f.v === "open" ? "Every group has been decided." : "No groups here."}</div>`;
+    $$(".sim-group", el).forEach((box) => {
+      const g = groups[+box.dataset.g];
+      const head = $(".sim-row", box);
+      head.onclick = () => { const open = head.getAttribute("aria-expanded") !== "true"; head.setAttribute("aria-expanded", open); $(".sim-pairs", box).classList.toggle("hidden", !open); };
+      $$("[data-v]", box).forEach((b) => (b.onclick = () => act(b, async () => {
+        await api(`/assignments/${a.id}/similarity/verdict`, { method: "POST", body: { ids: g.items.map((p) => p.id), verdict: b.dataset.v } });
+        toast(b.dataset.v === "cleared" ? `Marked ${g.people.length} students as fine on question ${g.q}.` : b.dataset.v === "confirmed" ? `Copying confirmed for ${g.people.length} students.` : "Decision undone.");
+        render();
+      })));
+    });
   };
   draw();
   $$(".chips [data-f]", el).forEach((b) => (b.onclick = () => {

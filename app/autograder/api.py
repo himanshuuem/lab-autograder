@@ -298,7 +298,7 @@ def assignment(aid: int, db=DB, user: User = USER):
     scores = [s.final_score for s in a.submissions if s.final_score is not None and s.status != "NO_SUBMISSION"]
     return {**ser_assignment(a, db), "course": {"id": a.course.id, "name": a.course.name},
             "questions": [ser_question(q) for q in a.questions], "job": ser_job(job),
-            "scores": scores}
+            "scores": scores, "similar_open": open_similar_groups(db, aid)}
 
 
 class AssignmentPatch(BaseModel):
@@ -635,6 +635,43 @@ def similarity_pair(pid: int, db=DB, user: User = USER):
 
 class Verdict(BaseModel):
     verdict: str
+
+
+class GroupVerdict(BaseModel):
+    ids: list[int] = Field(max_length=5000)
+    verdict: str
+
+
+@api.post("/assignments/{aid}/similarity/verdict")
+def similarity_group_verdict(aid: int, body: GroupVerdict, db=DB, user: User = USER):
+    """One decision for a whole group of students who share code on a question."""
+    if body.verdict not in ("", "cleared", "confirmed"):
+        raise HTTPException(400, "verdict must be '', 'cleared' or 'confirmed'")
+    a = _assignment(db, aid, user)
+    pairs = list(db.scalars(select(SimilarityPair).where(SimilarityPair.assignment_id == aid,
+                                                         SimilarityPair.id.in_(body.ids))))
+    for p in pairs:
+        p.verdict = body.verdict
+    grading.run_similarity(db, a)
+    return {"ok": True, "changed": len(pairs)}
+
+
+def open_similar_groups(db, aid: int) -> int:
+    """Groups of students sharing code on a question with a pair nobody has decided on yet
+    (the Similarity tab shows the same groups)."""
+    parent: dict = {}
+
+    def find(x):
+        parent.setdefault(x, x)
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    rows = db.execute(select(SimilarityPair.question_label, SimilarityPair.sub_a_id, SimilarityPair.sub_b_id,
+                             SimilarityPair.verdict).where(SimilarityPair.assignment_id == aid)).all()
+    for q, x, y, _ in rows:
+        parent[find((q, x))] = find((q, y))
+    return len({find((q, x)) for q, x, _, v in rows if not v})
 
 
 @api.patch("/similarity/{pid}")

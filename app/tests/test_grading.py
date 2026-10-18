@@ -161,6 +161,49 @@ def test_regrade_one_keeps_override(graded):
     assert s.override_score == 15 and s.final_score == 15 and s.auto_score == 10
 
 
+def test_similar_code_is_decided_in_its_own_queue(graded):
+    """Similar code is flagged on both students but doesn't send them to "Needs review":
+    the teacher decides on it in the Similarity tab, a group at a time."""
+    _, a, by, db = graded
+    rohit = by["Rohit Mondal"]
+    rohit.needs_review = False
+    grading.run_similarity(db, a)
+    assert ("SIMILAR_CODE", "1") in codes(rohit) and not rohit.needs_review
+
+
+def test_ocr_code_that_passes_everything_needs_no_review(graded, monkeypatch):
+    """Code read from a screenshot is checked by hand only when it fails a test: passing
+    every test shows it was read right."""
+    from dataclasses import replace
+    from docextract import ExtractionResult
+    from autograder.db import SessionLocal
+    from autograder.models import Submission
+    _, a, by, shared = graded
+    shared.commit()                              # SQLite: let another session write
+    db = SessionLocal()                          # its own session, rolled back at the end
+    try:
+        good = db.get(Submission, by["Ananya Bose"].id)
+        assert good.auto_score == 20
+        progs = [replace(p, ocr=True, needs_review=True, pages=[1]) for p in
+                 __import__("docextract").extract_submission(good.pdf_path).programs]
+
+        def fake(path, programs):
+            return lambda *_a, **_k: ExtractionResult(source=path, programs=programs, ocr_pages=[1], page_count=1)
+        monkeypatch.setattr(grading, "extract_submission", fake(good.pdf_path, progs))
+        grading.grade_submission(db, LocalSandbox(), good)
+        assert good.auto_score == 20 and not good.needs_review
+        assert not {c for c, _ in codes(good)} & {"OCR_USED", "EXTRACTION_REVIEW"}
+        db.flush()
+
+        broken = [replace(progs[0], code=progs[0].code + "\n)))( misread by OCR\n")] + progs[1:]
+        monkeypatch.setattr(grading, "extract_submission", fake(good.pdf_path, broken))
+        grading.grade_submission(db, LocalSandbox(), good)
+        assert good.needs_review and ("OCR_USED", None) in codes(good)
+    finally:
+        db.rollback()
+        db.close()
+
+
 def test_cleared_pair_removes_flags(graded):
     _, a, by, db = graded
     for p in db.scalars(select(SimilarityPair)):

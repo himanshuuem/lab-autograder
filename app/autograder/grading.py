@@ -106,6 +106,7 @@ def _pick_pdf(files: list[dict]) -> dict | None:
     return (pdfs or files)[0]
 
 
+EARLIER_COPY = "Couldn't download from Classroom just now; graded the copy downloaded earlier"
 MAX_ATTACHMENTS = 30   # some students attach one file per question, 12+ files
 
 
@@ -155,7 +156,7 @@ def sync_submissions(assignment_id: int, cc: ClassroomClient, progress=None, fre
             pdf_path, pdf_file_id, kinds = earlier
             for f in files:
                 f["kind"] = kinds.get(f.get("file_id"))
-            notes = ["Couldn't download from Classroom just now; graded the copy downloaded earlier"]
+            notes = [EARLIER_COPY]
             log.warning("  %d/%d %s: using the earlier download", n, len(subs), st["name"])
             got = []
         if got:
@@ -487,12 +488,17 @@ def grade_submission(db, sb: SandboxClient, sub: Submission) -> None:
     sub.extraction = {"warnings": res.warnings, "repairs": res.repairs,
                       "ocr_pages": res.ocr_pages, "page_count": res.page_count,
                       "images_read": res.images_read}
+    earlier = [x for x in skipped if x.startswith(EARLIER_COPY)]
+    skipped = [x for x in skipped if x not in earlier]
+    if earlier:           # the same files as last time, so nothing for the teacher to do
+        flags.append(flag("EARLIER_COPY", msg=earlier[0]))
     if skipped:
         flags.append(flag("FILE_SKIPPED", msg="; ".join(skipped)[:500]))
         sub.needs_review = True
-    if res.ocr_pages:
-        flags.append(flag("OCR_USED", msg=f"Scanned pages {res.ocr_pages} read by OCR; check the code"))
-        sub.needs_review = True
+    # code read by OCR (or split up with doubts) is checked by hand only when it fails a test:
+    # a program that compiles and passes everything was evidently read right
+    uncertain: list[ProgramResult] = []
+    scanned: list[ProgramResult] = []
     questions = list(a.questions)
     mapped, extra, notes = _map_programs(questions, res.programs)
     if notes:
@@ -514,12 +520,14 @@ def grade_submission(db, sb: SandboxClient, sub: Submission) -> None:
         pr = ProgramResult(question_label=q.label, language=p.language, code=p.code,
                            claimed_output=p.claimed_output, repairs=p.repairs, warnings=p.warnings,
                            ocr=p.ocr, claimed_from_image=p.claimed_from_image,
-                           fixed_by_teacher=q.label in fixes)
+                           fixed_by_teacher=q.label in fixes, tests_passed=0, tests_total=0)
         sub.programs.append(pr)
         if p.needs_review:
-            sub.needs_review = True
+            uncertain.append(pr)
             if not p.ocr:
                 flags.append(flag("EXTRACTION_REVIEW", q.label, "; ".join(p.warnings)[:300]))
+        if set(p.pages or []) & set(res.ocr_pages):
+            scanned.append(pr)
         tests = list(q.tests)
         if not p.language:
             pr.compile_status, pr.score = "UNKNOWN_LANGUAGE", 0.0
@@ -599,6 +607,17 @@ def grade_submission(db, sb: SandboxClient, sub: Submission) -> None:
         flags.append(flag("NO_CODE", None, "No code was found in the PDF"))
         sub.needs_review = True
 
+    def passed_all(pr):
+        return pr.tests_total > 0 and pr.tests_passed == pr.tests_total
+    doubtful = {pr.question_label for pr in uncertain if not passed_all(pr)}
+    flags = [f for f in flags if f["code"] != "EXTRACTION_REVIEW" or f["q"] in doubtful]
+    if doubtful:
+        sub.needs_review = True
+    missing = any(f["code"] == "MISSING_QUESTION" for f in flags)
+    if res.ocr_pages and (missing or not res.programs or any(not passed_all(pr) for pr in scanned)):
+        flags.append(flag("OCR_USED", msg=f"Scanned pages {res.ocr_pages} read by OCR; check the code"))
+        sub.needs_review = True
+
     if sandbox_failed:
         sub.status, sub.error, sub.auto_score = "ERROR", f"sandbox: {sandbox_failed}"[:1000], None
         flags.append(flag("SANDBOX_ERROR", None, str(sandbox_failed)[:300]))
@@ -618,9 +637,12 @@ def run_similarity(db, a: Assignment) -> int:
     for s in subs.values():
         s.flags = [f for f in (s.flags or []) if f["code"] != "SIMILAR_CODE"]
     by_q: dict[str, list[Doc]] = {}
+    labels = {q.label for q in a.questions}
     for s in subs.values():
         for p in s.programs:
-            if p.code.strip() and p.language:
+            # only graded questions: a program that matched no question is often a whole
+            # document read as one, and every student's document for a sheet looks alike
+            if p.code.strip() and p.language and (not labels or p.question_label in labels):
                 by_q.setdefault(p.question_label, []).append(Doc(str(s.id), p.code, p.language))
     seen = set()
     for label, docs in by_q.items():
@@ -640,9 +662,10 @@ def run_similarity(db, a: Assignment) -> int:
                 continue
             for me, other in ((ia, ib), (ib, ia)):
                 s = subs[me]
+                # reviewed in the Similarity tab, a group at a time: it no longer puts the
+                # student in "Needs review" one by one
                 s.flags = (s.flags or []) + [flag("SIMILAR_CODE", label,
                                                   f"{r.score:.0%} similar to {subs[other].student.name}")]
-                s.needs_review = True
     for key, pair in existing.items():
         if key not in seen:
             db.delete(pair)
