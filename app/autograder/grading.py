@@ -636,8 +636,15 @@ def grade_submission(db, sb: SandboxClient, sub: Submission) -> None:
 def run_similarity(db, a: Assignment) -> int:
     """Recompute similar pairs. Existing pairs are updated in place so their ids
     (and the TA's verdicts) survive re-grading."""
-    existing = {(p.question_label, p.sub_a_id, p.sub_b_id): p
-                for p in db.scalars(select(SimilarityPair).where(SimilarityPair.assignment_id == a.id))}
+    existing: dict[tuple, SimilarityPair] = {}
+    stale: list[SimilarityPair] = []        # copies of one pair left by older versions
+    for p in db.scalars(select(SimilarityPair).where(SimilarityPair.assignment_id == a.id)
+                        .order_by(SimilarityPair.verdict.desc(), SimilarityPair.id)):
+        key = (p.question_label, p.sub_a_id, p.sub_b_id)
+        if key in existing or p.sub_a_id == p.sub_b_id:
+            stale.append(p)
+        else:
+            existing[key] = p             # the one with the teacher's decision, if any
     subs = {s.id: s for s in a.submissions}
     for s in subs.values():
         s.flags = [f for f in (s.flags or []) if f["code"] != "SIMILAR_CODE"]
@@ -648,18 +655,26 @@ def run_similarity(db, a: Assignment) -> int:
             # only graded questions: a program that matched no question is often a whole
             # document read as one, and every student's document for a sheet looks alike
             if p.code.strip() and p.language and (not labels or p.question_label in labels):
-                by_q.setdefault(p.question_label, []).append(Doc(str(s.id), p.code, p.language))
+                docs = by_q.setdefault(p.question_label, [])
+                mine = next((d for d in docs if d.id == str(s.id)), None)
+                if mine:                  # two pieces with one label: one answer, not a pair
+                    mine.code += "\n\n" + p.code
+                else:
+                    docs.append(Doc(str(s.id), p.code, p.language))
     seen = set()
     for label, docs in by_q.items():
         for r in compare_submissions(docs, threshold=a.similarity_threshold,
                                      starter_code=a.starter_code or None):
             ia, ib = sorted((int(r.a), int(r.b)))
+            if ia == ib or (label, ia, ib) in seen:
+                continue
             la, lb = (r.lines_a, r.lines_b) if int(r.a) == ia else (r.lines_b, r.lines_a)
             key = (label, ia, ib)
             seen.add(key)
             pair = existing.get(key)
             if pair is None:
-                pair = SimilarityPair(assignment_id=a.id, question_label=label, sub_a_id=ia, sub_b_id=ib)
+                pair = existing[key] = SimilarityPair(assignment_id=a.id, question_label=label,
+                                                      sub_a_id=ia, sub_b_id=ib)
                 db.add(pair)
             pair.score, pair.jaccard, pair.low_confidence = r.score, r.jaccard, r.low_confidence
             pair.lines_a, pair.lines_b = [list(x) for x in la], [list(x) for x in lb]
@@ -674,6 +689,8 @@ def run_similarity(db, a: Assignment) -> int:
     for key, pair in existing.items():
         if key not in seen:
             db.delete(pair)
+    for pair in stale:
+        db.delete(pair)
     return len(seen)
 
 

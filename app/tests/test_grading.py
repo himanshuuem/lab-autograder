@@ -205,6 +205,32 @@ def test_ocr_code_that_passes_everything_needs_no_review(graded, monkeypatch):
         db.close()
 
 
+def test_stale_duplicate_and_self_pairs_are_removed(graded):
+    """Older versions saved one pair several times (and paired a student with their own
+    second program): grading again leaves exactly one pair per two students, keeping the
+    teacher's decision."""
+    _, a, by, db = graded
+    real = db.scalars(select(SimilarityPair)).all()
+    p0 = real[0]
+    p0.verdict = "confirmed"
+    db.add(SimilarityPair(assignment_id=a.id, question_label=p0.question_label, sub_a_id=p0.sub_a_id,
+                          sub_b_id=p0.sub_b_id, score=0.9, jaccard=0.9))
+    db.add(SimilarityPair(assignment_id=a.id, question_label=p0.question_label, sub_a_id=p0.sub_a_id,
+                          sub_b_id=p0.sub_a_id, score=1.0, jaccard=1.0))
+    db.add(SimilarityPair(assignment_id=a.id, question_label="no-such-question", sub_a_id=p0.sub_a_id,
+                          sub_b_id=p0.sub_b_id, score=1.0, jaccard=1.0))
+    db.flush()
+    grading.run_similarity(db, a)
+    db.flush()
+    after = db.scalars(select(SimilarityPair)).all()
+    assert len(after) == len(real)
+    assert all(p.sub_a_id != p.sub_b_id for p in after)
+    assert next(p for p in after if p.id == p0.id).verdict == "confirmed"
+    p0.verdict = ""
+    grading.run_similarity(db, a)
+    db.commit()
+
+
 def test_cleared_pair_removes_flags(graded):
     _, a, by, db = graded
     for p in db.scalars(select(SimilarityPair)):
