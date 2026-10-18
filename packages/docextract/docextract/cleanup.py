@@ -383,6 +383,94 @@ _JAVA_WORDS = {"else", "do", "try", "finally", "return", "new", "throw", "case",
                "package", "extends", "implements", "throws", "synchronized"}
 
 
+_KEYWORDS = _JAVA_WORDS | {"if", "for", "while", "switch", "break", "continue", "this", "super", "null", "true",
+                          "false", "instanceof", "System", "out", "println", "print", "printf", "main", "args",
+                          "Math", "length", "Scanner", "in", "nextInt", "nextLine", "nextDouble"}
+_SMART_DOUBLE = re.compile(r'(?<=[(,=+:\s])"["“”](?=\w)|["“”]"(?=\w[^"\n]*"\s*[,)+;])')
+_LONE_BRACE_MISREAD = re.compile(r"^\s*[tTjJ\]1l|]\s*$")      # a "}" alone on its line, misread
+
+
+def _confusable_key(name: str) -> str:
+    """1, l, I, i and il look alike in a screenshot: s1 / sil, c1 / cl, rollNo / rol1No."""
+    return re.sub(r"[1lIi|]+", "1", name)
+
+
+def _unify_confusables(code: str, repairs: Counter) -> str:
+    """One name read two ways (`Student sil = …; highest = s1;`, `this.rol1No = rollNo`):
+    every spelling becomes the likeliest one. Only names where a "1" is involved are
+    touched; `list` and `lst` are left alone."""
+    bare = _STR_LIT.sub('""', code)
+    counts = Counter(re.findall(r"(?<![\w.])(?:\.)?([A-Za-z_]\w*)", bare))
+    counts.update(re.findall(r"\.([A-Za-z_]\w*)", bare))
+    groups: dict[str, list[str]] = {}
+    for name in counts:
+        groups.setdefault(_confusable_key(name), []).append(name)
+
+    def score(name):
+        n = counts[name]
+        m = re.fullmatch(r"([A-Za-z_]+?)(\d+)", name)
+        if m and any(re.fullmatch(re.escape(m.group(1)) + r"\d+", o) and o != name for o in counts):
+            n += 2                                  # s1 beside s2 and s3
+        if re.search(r"[A-Za-z]1+[A-Za-z]", name):
+            n -= 3                                  # rol1No: a digit inside a word is a misread l
+        return n
+
+    declared = set(re.findall(r"\b[A-Za-z_][\w<>\[\]]*\s+([A-Za-z_]\w*)\s*[=;,)]", bare))
+    for names in groups.values():
+        if (len(names) < 2 or not any("1" in n for n in names) or any(n in _KEYWORDS for n in names)
+                or sum(n in declared for n in names) > 1):      # `int i1, il;`: two real names
+            continue
+        best = max(names, key=lambda n: (score(n), counts[n]))
+        for n in names:
+            if n == best:
+                continue
+            parts = re.split(r'("(?:[^"\\\n]|\\.)*")', code)
+            for i in range(0, len(parts), 2):
+                parts[i], k = re.subn(rf"(?<![\w]){re.escape(n)}(?!\w)", best, parts[i])
+                repairs["ocr_name_fixed"] += k
+            code = "".join(parts)
+    return code
+
+
+def repair_ocr_java(code: str, repairs: Counter) -> str:
+    """What Tesseract does to Java in an IDE screenshot, fixed before the usual repairs:
+    - 0 read as @ (`100@@`, `students[@]`); a real annotation is @ and a letter
+    - a smart quote read twice: `("“tata",` (it breaks every string after it)
+    - + read as t between a string and a name: `"Cgpa: "thighest.cgpa`
+    - a "}" alone on a line read as t, j or ]
+    - one name spelt two ways, 1 / l / i confused: `sil` and `s1`, `rol1No` and `rollNo`"""
+    lines = []
+    for line in code.split("\n"):
+        new = line
+        if _LONE_BRACE_MISREAD.match(new):
+            new = new[:len(new) - len(new.lstrip())] + "}"
+        if new.count('"') % 2:
+            new = _SMART_DOUBLE.sub('"', new, count=1)
+        new = re.sub(r"@(?![A-Za-z_])", "0", new)
+        if new != line:
+            repairs["ocr_symbol_fixed"] += 1
+        lines.append(new)
+    code = "\n".join(lines)
+
+    known = set(re.findall(r"[A-Za-z_]\w*", _STR_LIT.sub('""', code)))
+
+    def plus(m):
+        name = m.group(2)
+        if name in known and not re.search(rf"\b[A-Za-z_][\w<>\[\]]*\s+t{name}\b", code):
+            repairs["ocr_symbol_fixed"] += 1
+            return m.group(1) + "+" + name
+        return m.group(0)
+
+    out = []
+    for line in code.split("\n"):
+        pieces = re.split(r'("(?:[^"\\\n]|\\.)*")', line)
+        for i in range(2, len(pieces), 2):
+            if pieces[i - 1]:
+                pieces[i] = re.sub(r"^(\s*)t([A-Za-z_]\w*)(?=\s*[.+;)])", plus, pieces[i])
+        out.append("".join(pieces))
+    return _unify_confusables("\n".join(out), repairs)
+
+
 def repair_java(code: str, repairs: Counter) -> str:
     """Fix what copying Java out of a PDF or a screenshot does to it:
     - VS Code's "Run | Debug" above main, a roll number from the page header (2025ITB085)

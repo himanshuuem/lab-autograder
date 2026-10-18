@@ -191,3 +191,45 @@ def test_a_statement_split_over_short_lines(tmp):
             '    Bank(String a, String b, int c, String d, int e, int f) { }\n}')
     r = extract_submission(make_pdf(tmp / "s.pdf", [("p", "Q1"), ("code", code, "prop_offset")]))
     assert '"S101", "Rahul", 20000,' in r.programs[0].code and "new Bank(" in r.programs[0].code
+
+
+# ------------------------------------------------- Tesseract on a dark VS Code screenshot
+OCR_STUDENTS = '''class Student{
+    String name; int rollNo; double cgpa;
+    Student(String name,int rollNo,double cgpa){
+        this.name=name;
+        this.rol1No=rol1No;
+        this.cgpa=cgpa;
+    }
+}
+public class alq2{
+    public static void main(String args[]){
+        Student sil=new Student("Harshita",@1,9.@);
+        Student s2=new Student("Kanak",@2,9.2);
+        Student s3=new Student(""Siya",03,10.0);
+        Student highest=s1;
+        if (s2.cgpa>highest.cgpa)
+            highest=s2;
+        if (s3.cgpa>highest.cgpa)
+            highest=s3;
+        System.out.println("Name: "thighest.name+"\\nCgpa: "thighest.cgpa);
+    t
+}'''
+
+
+def test_ocr_misreads_in_java_are_repaired():
+    rep = Counter()
+    code = cleanup.repair_java(cleanup.repair_ocr_java(OCR_STUDENTS, rep), rep)
+    assert 'Student s1=new Student("Harshita",01,9.0);' in code
+    assert 'new Student("Siya",03,10.0)' in code
+    assert "this.rollNo=rollNo;" in code and "rol1No" not in code
+    assert '"Name: "+highest.name+"\\nCgpa: "+highest.cgpa' in code
+    assert code.rstrip().endswith("}\n}")
+    assert rep["ocr_name_fixed"] >= 3 and rep["ocr_symbol_fixed"] >= 4
+
+
+@pytest.mark.parametrize("line", [
+    "@Override", 'String mail = "a@b.com";', "List<String> list = new ArrayList<>(); List<String> lst = list;",
+    "int i1 = 1; int il = 2;", 'String s = "";'])
+def test_ocr_repair_leaves_real_java_alone(line):
+    assert cleanup.repair_ocr_java(line, Counter()) == line

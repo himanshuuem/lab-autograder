@@ -116,6 +116,8 @@ def _program(sec: Section) -> ExtractedProgram | None:
     draft = "\n".join(ln.text for ln in code_lines)
     lang, _ = detect_language(draft)
     code = _rebuild(code_lines, lang, repairs, warnings)
+    if lang == "java" and any(ln.ocr for ln in code_lines):
+        code = cleanup.repair_ocr_java(code, repairs)   # before strings are joined: a misread quote
     if lang in ("c", "cpp", "java"):
         code = cleanup.join_wrapped_strings(code, repairs)
     if lang == "java":
@@ -195,12 +197,12 @@ def extract_submission(pdf_path: str, *, ocr: str = "auto",
 
 
 # ------------------------------------------------------------------ one answer per attached file
-QUESTION_WORDS = {"q", "qn", "qs", "ques", "question", "problem", "prob", "program", "prog",
+QUESTION_WORDS = {"q", "qn", "qs", "que", "ques", "question", "problem", "prob", "program", "prog",
                   "experiment", "expt", "exp", "task", "exercise", "ex"}
 # "1." / "3.." / "Q2" alone on one of the first lines of a file
-_NUMBER_LINE = re.compile(r"^\s*(?:(?:q|qn|ques|question|prog|program)\s*\.?\s*)?(\d{1,2})\s*[.):\-]*\s*$", re.I)
+_NUMBER_LINE = re.compile(r"^\s*(?:(?:q|qn|que|ques|question|prog|program)\s*\.?\s*)?(\d{1,2})\s*[.):\-]*\s*$", re.I)
 # q2.java, ass1q3, Question_4, "KA 3" (Hindi "of": "assignment 1 ka 3" = its question 3)
-_NAME_QUESTION = re.compile(r"(?:^|[^a-z])(?:q|qn|qs|ques|question|prog|program|ex|exp|task|ka)"
+_NAME_QUESTION = re.compile(r"(?:^|[^a-z])(?:q|qn|qs|que|ques|question|prog|program|ex|exp|task|ka)"
                             r"[\s_.\-#]*(\d{1,2})(?!\d)", re.I)
 _MARKER = re.compile(r"^\s*(code|output)\s*:\s*$", re.I)
 

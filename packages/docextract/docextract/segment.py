@@ -8,7 +8,7 @@ from .pdfread import Line
 
 # "Q4.5" and "Assignment 2.3" keep the whole number: sheets number questions 2.1, 2.2…
 DEFAULT_QUESTION_RE = (
-    r"^\s*(?:Q|Qn|Qs|Ques|Quest|Question|Problem|Prob|Program|Prog|Experiment|Expt|Exp|"
+    r"^\s*(?:Q|Qn|Qs|Que|Ques|Quest|Question|Problem|Prob|Program|Prog|Experiment|Expt|Exp|"
     r"Task|Assignment|Exercise|Ex)\s*(?:No\.?|Number)?\s*[-.:#_]?\s*(\d{1,3}(?:\.\d{1,2}(?!\d))?)\s*(?:[).:\-]|\b)"
 )
 _CODE_MARK = re.compile(r"^\s*(source\s*code|code|program(\s*code)?|solution|implementation|answer|ans)\s*[:\-]{0,2}\s*$", re.I)
@@ -61,7 +61,7 @@ class Section:
 
 
 # "Part_2 :", "Q.1)", "Answer -", "Ques 3:" alone on a line: labels, whatever font they're in
-_LABEL_LINE = re.compile(r"^(?:part|answer|ans|solution|question|ques|qn|q)[\s_.\-#]*\d{0,3}(?:\.\d{1,2})?[a-z]?\s*[:.)\-]*\s*$", re.I)
+_LABEL_LINE = re.compile(r"^(?:part|answer|ans|solution|question|ques|que|qn|q)[\s_.\-#]*\d{0,3}(?:\.\d{1,2})?[a-z]?\s*[:.)\-]*\s*$", re.I)
 
 
 def label_key(label: str) -> tuple:

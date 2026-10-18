@@ -187,3 +187,9 @@ def test_ocr_never_skips_scans(tmp):
     text_pdf = make_pdf(tmp / "t.pdf", [("h", "Q1"), ("code", C_SUM, "mono_spaces")])
     res = extract_submission(make_scanned(text_pdf, tmp / "scan.pdf"), ocr="never")
     assert res.programs == [] and res.ocr_pages == []
+
+
+def test_que_is_a_question_heading(tmp):
+    pdf = make_pdf(tmp / "s.pdf", [("h", "QUE 1)"), ("code", C_SUM, "mono_offset"),
+                                   ("h", "Que 2)"), ("code", C_SUM, "mono_offset")])
+    assert [p.question for p in extract_submission(pdf).programs] == ["1", "2"]

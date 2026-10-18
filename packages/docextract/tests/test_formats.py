@@ -151,3 +151,41 @@ def test_word_submission_end_to_end(tmp):
     assert run_program(q2.code, "python", "2\n") == "Fact 1 1\nFact 2 2\n"
     assert q2.claimed_from_image and "Fact 3 6" in q2.claimed_output
     assert r.ocr_pages == []
+
+
+# ------------------------------------------------- code pasted as dark IDE screenshots
+_DARK_TOP = '''class Student{
+    String name;
+    double cgpa;
+    Student(String name, double cgpa){
+        this.name=name;
+        this.cgpa=cgpa;
+    }
+}'''
+_DARK_MAIN = '''public class Main{
+    public static void main(String args[]){
+        Student s1=new Student("Riya", 9.1);
+        Student s2=new Student("Asha", 8.4);
+        Student best=s1;
+        if (s2.cgpa>best.cgpa)
+            best=s2;
+        System.out.println("Topper: "+best.name);
+    }
+}'''
+
+
+@needs_tesseract
+def test_dark_code_screenshots_under_a_que_heading(tmp):
+    # a Word page holding only "QUE 1)" and two dark VS Code screenshots, the first
+    # squashed by Word: not a scan, so each picture is inverted and read on its own
+    top, main = screenshot(_DARK_TOP, title=None, font_px=18), screenshot(_DARK_MAIN, title=None, font_px=18)
+    pdf = make_pdf(tmp / "s.pdf", [("h", "QUE 1)"), ("img", top, 420, 150), ("img", main, 460),
+                                   ("pagebreak",), ("h", "QUE 2)"), ("img", main, 460)])
+    r = extract_submission(pdf)
+    assert r.ocr_pages == [] and r.images_read == 3
+    q1, q2 = r.programs
+    assert (q1.question, q2.question) == ("1", "2")
+    assert q1.code.index("this.cgpa") < q1.code.index("public class Main")    # top screenshot first
+    for line in ("this.cgpa=cgpa;", 'Student s1=new Student("Riya", 9.1);', "if (s2.cgpa>best.cgpa)",
+                 'System.out.println("Topper: "+best.name)'):
+        assert line in q1.code

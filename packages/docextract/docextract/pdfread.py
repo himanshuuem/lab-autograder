@@ -136,15 +136,16 @@ def _prepare(img):
 
 
 def _ocr_image(img, *, x0: float, y0: float, scale: float, pno: int, page_h: float,
-               image: bool) -> list[Line]:
+               image: bool, scale_y: float | None = None) -> list[Line]:
     """OCR a PIL image whose top-left sits at (x0, y0) pt on the page; `scale` is
     points per image pixel."""
     import pytesseract
-    img_h_pt = img.height * scale
+    scale_y = scale if scale_y is None else scale_y   # a picture stretched in Word has its own
+    img_h_pt = img.height * scale_y                    # vertical scale
     if image:
         before = img.width
         img = _prepare(img)
-        scale = scale * before / img.width
+        scale, scale_y = scale * before / img.width, scale_y * before / img.width
     # psm 6 = uniform block of text; keeps code and output lines intact
     data = pytesseract.image_to_data(img, config="--psm 6 -c preserve_interword_spaces=1",
                                      output_type=pytesseract.Output.DICT)
@@ -155,11 +156,14 @@ def _ocr_image(img, *, x0: float, y0: float, scale: float, pno: int, page_h: flo
         key = (data["block_num"][i], data["par_num"][i], data["line_num"][i])
         words.setdefault(key, []).append(
             (x0 + data["left"][i] * scale, data["width"][i] * scale,
-             y0 + data["top"][i] * scale, data["height"][i] * scale,
+             y0 + data["top"][i] * scale_y, data["height"][i] * scale_y,
              w, float(data["conf"][i])))
     lines = []
     for ws in words.values():
         ws.sort(key=lambda t: t[0])
+        if image:   # an IDE's indent guides read as "|" before the code: they also run tall
+            while len(ws) > 1 and _GUIDE.match(ws[0][4]):
+                ws.pop(0)
         char_w = statistics.median(t[1] / max(len(t[4]), 1) for t in ws)
         char_w = max(char_w, 0.5)
         parts, prev_end = [], None
@@ -175,8 +179,8 @@ def _ocr_image(img, *, x0: float, y0: float, scale: float, pno: int, page_h: flo
         if m and len(ws) > 1 and ws[0][4].rstrip(".:)|").isdigit():
             x_after = ws[1][0]
         conf = statistics.mean(t[5] for t in ws)
-        if image and conf < 30:      # icons, window chrome, noise
-            continue
+        if image and conf < 30 and not _BRACES.match(text):   # icons, window chrome, noise
+            continue                  # (a "}" alone is read with low confidence but matters)
         # a window title bar: top of the screenshot, a few junk glyphs (the OCR'd
         # close/minimise buttons), a wide gap, then the title
         if image and (ws[0][2] - y0) < 0.14 * img_h_pt and _TITLE_BAR.match(text):
@@ -197,6 +201,8 @@ def _ocr_lines(page, pno: int, dpi: int = 300) -> list[Line]:
     return _ocr_image(img, x0=0, y0=0, scale=72.0 / dpi, pno=pno, page_h=page.rect.height, image=False)
 
 
+_GUIDE = re.compile(r"^[|¦]+$")
+_BRACES = re.compile(r"^\s*[{}]+[;)]?\s*$")
 _TITLE_BAR = re.compile(r"^\s*(\S{1,4}\s+){0,3}\S{0,4}\s{4,}\S+(\s+\S+){0,4}\s*$")
 MIN_IMAGE_PT = (60, 18)   # smaller pictures are icons/logos, not screenshots
 
@@ -245,7 +251,7 @@ def _screenshot_lines(page, pno: int) -> tuple[list[Line], int]:
             dpi = int(min(600, max(200, native / (r.width / 72.0))))
             pix = page.get_pixmap(dpi=dpi, clip=r)
             img = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
-        lines = _ocr_image(img, x0=r.x0, y0=r.y0, scale=r.width / img.width, pno=pno,
+        lines = _ocr_image(img, x0=r.x0, y0=r.y0, scale=r.width / img.width, scale_y=r.height / img.height, pno=pno,
                            page_h=page.rect.height, image=True)
         if lines:
             n += 1
@@ -255,7 +261,10 @@ def _screenshot_lines(page, pno: int) -> tuple[list[Line], int]:
 
 def _needs_ocr(page, lines: list[Line]) -> bool:
     """A scanned or photographed page: almost no text, and pictures cover most of it.
-    (A screenshot alone on a page is read as a screenshot instead.)"""
+    (A screenshot alone on a page is read as a screenshot instead.) A page with a
+    heading such as "QUE 2)" or "OUTPUT:" beside its pictures is a document with pasted
+    screenshots, read one by one (a dark IDE screenshot is inverted first), unless one
+    picture fills the page edge to edge (a scan with a "Scanned with…" line)."""
     n_chars = sum(len(ln.text) for ln in lines)
     if n_chars >= 25:
         return False
@@ -263,11 +272,14 @@ def _needs_ocr(page, lines: list[Line]) -> bool:
     # layer, but a path per glyph (a short page of code is still 50+)
     if len(page.get_drawings()) >= 50:
         return True
-    if not page.get_images():
-        return False
     area = page.rect.width * page.rect.height
-    covered = sum((pymupdf.Rect(i["bbox"]) & page.rect).get_area() for i in page.get_image_info())
-    return covered >= 0.5 * area
+    pictures = [(pymupdf.Rect(i["bbox"]) & page.rect).get_area() for i in page.get_image_info()]
+    pictures = [a for a in pictures if a > 0]
+    if not pictures:
+        return False
+    if lines:
+        return max(pictures) >= 0.85 * area
+    return sum(pictures) >= 0.5 * area
 
 
 def read_pdf(path: str, ocr: str = "auto") -> ReadResult:

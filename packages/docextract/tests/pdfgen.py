@@ -74,12 +74,12 @@ def make_pdf(path, blocks, header: str | None = None, footer_pages: bool = True)
     for b in blocks:
         if b[0] == "pagebreak":
             newpage(); continue
-        if b[0] == "img":   # ("img", png_bytes, width_pt)
+        if b[0] == "img":   # ("img", png_bytes, width_pt[, height_pt]): a height squashes it
             from reportlab.lib.utils import ImageReader
             ir = ImageReader(io.BytesIO(b[1]))
             iw, ih = ir.getSize()
             dw = b[2] if len(b) > 2 else min(w - 2 * LEFT, iw * 0.5)
-            dh = dw * ih / iw
+            dh = b[3] if len(b) > 3 else dw * ih / iw
             if y - dh < 50: newpage()
             c.drawImage(ir, LEFT, y - dh + LH * 0.7, width=dw, height=dh)
             y -= dh + 8
