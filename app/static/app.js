@@ -1003,9 +1003,10 @@ async function viewSubmission(id) {
     return `<section class="sheet qblock">
       <div class="qhead"><h3>Question ${esc(p.question)}</h3>
         <span class="lang" style="font-size:12px">${esc(LANG[p.language] || p.language || "Unknown language")}</span>
-        ${p.compile_status === "COMPILE_ERROR" ? `<span class="flag red">Doesn't compile</span>` : ""}${p.ocr ? `<span class="flag mark">Read by OCR</span>` : ""}${verdict}</div>
+        ${p.compile_status === "COMPILE_ERROR" ? `<span class="flag red">Doesn't compile</span>` : ""}${p.fixed ? `<span class="flag blue">Corrected by you</span>` : p.ocr ? `<span class="flag mark">Read by OCR</span>` : ""}${verdict}
+        <button class="btn small ghost" style="margin-left:auto" data-fix="${esc(p.question)}">${p.fixed ? "Edit your code" : "Fix code"}</button></div>
       <div class="qgrid">
-        <div>${codeTable(p.code)}
+        <div data-code="${esc(p.question)}">${codeTable(p.code)}
           ${Object.keys(p.repairs || {}).length ? `<p class="muted small">Fixed: ${esc(repairText(p.repairs))}.</p>` : ""}
           ${(p.warnings || []).length ? `<p class="small" style="color:var(--ink-2)">${p.warnings.map(esc).join("<br>")}</p>` : ""}</div>
         <div>
@@ -1030,17 +1031,48 @@ async function viewSubmission(id) {
   }).join("") : (s.status === "NO_SUBMISSION" ? `<div class="sheet empty"><h2>Nothing turned in</h2><p>This student hasn't attached a file in Classroom. The score is 0 until they submit and you grade again.</p></div>`
     : `<div class="sheet empty"><h2>No code found</h2><p>Open the PDF to check what was submitted. You can set a score by hand above.</p></div>`);
 
-  $$("[data-run]").forEach((h) => (h.onclick = () => h.nextElementSibling.classList.toggle("hidden")));
-  $("#regrade").onclick = (e) => act(e.target, async () => {
-    const j = await api(`/submissions/${id}/regrade`, { method: "POST" });
-    e.target.textContent = "Grading…";
+  if ((s.missing || []).length && s.status !== "NO_SUBMISSION") {
+    $("#programs").insertAdjacentHTML("beforeend", `<section class="sheet qblock"><div class="qhead"><h3>No code found</h3>
+      <span class="muted small">for question ${s.missing.map(esc).join(", ")}. If it is in the PDF (a screenshot the reader missed), type it in to grade it.</span></div>
+      <div class="pad" style="display:flex;gap:8px;flex-wrap:wrap">${s.missing.map((q) => `<button class="btn small" data-fix="${esc(q)}" data-new>Add code for question ${esc(q)}</button>`).join("")}</div>
+      <div data-code-new></div></section>`);
+  }
+  // the teacher's own copy of a question's code: typed over an OCR misreading, graded instead
+  const waitJob = async (j, btn) => {
+    if (btn) btn.textContent = "Grading…";
     for (let i = 0; i < 300; i++) {
       await new Promise((r) => setTimeout(r, 1000));
       const nj = await api(`/jobs/${j.id}`);
       if (nj.status === "done" || nj.status === "failed") { toast(nj.status === "done" ? "Graded again." : nj.message, nj.status !== "done"); break; }
     }
     render();
-  });
+  };
+  $$("[data-fix]").forEach((b) => (b.onclick = () => {
+    const q = b.dataset.fix;
+    const prog = s.programs.find((p) => p.question === q);
+    const box = b.hasAttribute("data-new") ? $("[data-code-new]") : $(`[data-code="${CSS.escape(q)}"]`);
+    const code = prog ? prog.code : "";
+    box.innerHTML = `<div class="fix">${b.hasAttribute("data-new") ? `<div class="k small" style="font-weight:600;margin:12px 0 6px">Question ${esc(q)}</div>` : ""}
+      <textarea class="code-edit" rows="${Math.min(30, Math.max(8, code.split("\n").length + 2))}" spellcheck="false" aria-label="Code for question ${esc(q)}">${esc(code)}</textarea>
+      <p class="muted small">Correct what was misread (compare with Open PDF), then grade again. Your version is kept for every later grading.</p>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn small primary" data-save>Save and grade again</button>
+        <button class="btn small ghost" data-cancel>Cancel</button>
+        ${prog && prog.fixed ? `<button class="btn small ghost" data-undo>Use the code from the PDF</button>` : ""}</div></div>`;
+    const ta = $("textarea", box);
+    ta.focus();
+    ta.addEventListener("keydown", (e) => {          // Tab indents instead of leaving the box
+      if (e.key !== "Tab") return;
+      e.preventDefault();
+      ta.setRangeText("    ", ta.selectionStart, ta.selectionEnd, "end");
+    });
+    const send = (code, btn) => act(btn, async () => waitJob(await api(`/submissions/${id}/code`, { method: "PUT", body: { question: q, code } }), btn));
+    $("[data-save]", box).onclick = (e) => { if (!ta.value.trim()) return toast("Type the code first.", true); send(ta.value, e.target); };
+    $("[data-cancel]", box).onclick = () => render();
+    const undo = $("[data-undo]", box);
+    if (undo) undo.onclick = (e) => send(null, e.target);
+  }));
+  $$("[data-run]").forEach((h) => (h.onclick = () => h.nextElementSibling.classList.toggle("hidden")));
+  $("#regrade").onclick = (e) => act(e.target, async () => waitJob(await api(`/submissions/${id}/regrade`, { method: "POST" }), e.target));
   $("#reviewed").onclick = (e) => act(e.target, async () => { await api(`/submissions/${id}`, { method: "PATCH", body: { reviewed: !s.reviewed } }); render(); });
   $("#ovr").onsubmit = (e) => { e.preventDefault(); act(null, async () => {
     const v = e.target.score.value;

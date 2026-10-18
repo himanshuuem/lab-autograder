@@ -8,7 +8,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 
-from docextract import Doc, bundle, compare_submissions, extract_submission
+from docextract import Doc, ExtractedProgram, bundle, compare_submissions, extract_submission
+from docextract.langdetect import detect_language, java_entrypoint
 from sqlalchemy import select
 
 from .assignment_parser import parse_assignment_pdf
@@ -304,6 +305,18 @@ def _relabel(questions: list[Question], programs, guessed: bool) -> None:
             taken.add(to)
 
 
+def _fixed_program(label: str, code: str, read) -> ExtractedProgram:
+    """The teacher's corrected code for a question, in place of what was read from the PDF
+    (keeping the output the student showed, to compare against)."""
+    lang = detect_language(code)[0] or (read.language if read else None)
+    return ExtractedProgram(
+        question=label, language=lang, code=code,
+        claimed_output=read.claimed_output if read else None,
+        claimed_from_image=bool(read and read.claimed_from_image),
+        entrypoint=java_entrypoint(code) if lang == "java" else None,
+        warnings=["The code was corrected by you; this is what was graded."])
+
+
 def _map_programs(questions: list[Question], programs) -> tuple[dict, list, list[str]]:
     _relabel(questions, programs, guessed=False)
     _place_by_topic(questions, programs)
@@ -484,6 +497,9 @@ def grade_submission(db, sb: SandboxClient, sub: Submission) -> None:
     mapped, extra, notes = _map_programs(questions, res.programs)
     if notes:
         sub.extraction["warnings"] = sub.extraction["warnings"] + notes
+    fixes = {q.label: sub.code_fixes[q.label] for q in questions if q.label in (sub.code_fixes or {})}
+    for label, code in fixes.items():
+        mapped[label] = _fixed_program(label, code, mapped.get(label))
 
     weighted, total_w, any_scored = 0.0, 0.0, False
     sandbox_failed = None
@@ -497,7 +513,8 @@ def grade_submission(db, sb: SandboxClient, sub: Submission) -> None:
         _borrow_classes(p, res.programs)
         pr = ProgramResult(question_label=q.label, language=p.language, code=p.code,
                            claimed_output=p.claimed_output, repairs=p.repairs, warnings=p.warnings,
-                           ocr=p.ocr, claimed_from_image=p.claimed_from_image)
+                           ocr=p.ocr, claimed_from_image=p.claimed_from_image,
+                           fixed_by_teacher=q.label in fixes)
         sub.programs.append(pr)
         if p.needs_review:
             sub.needs_review = True
@@ -578,7 +595,7 @@ def grade_submission(db, sb: SandboxClient, sub: Submission) -> None:
             sub.programs.append(ProgramResult(question_label=p.question, language=p.language, code=p.code,
                                               claimed_output=p.claimed_output, repairs=p.repairs,
                                               warnings=p.warnings, compile_status="NO_TESTS"))
-    if not res.programs:
+    if not res.programs and not fixes:
         flags.append(flag("NO_CODE", None, "No code was found in the PDF"))
         sub.needs_review = True
 

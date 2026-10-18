@@ -143,6 +143,9 @@ class Submission(Base):
     # Classroom's updateTime when the files were last downloaded in full: the same time next
     # sync means nothing changed, so the saved PDF is graded without downloading again
     source_updated: Mapped[str] = mapped_column(String(40), default="", server_default=text("''"))
+    # {question label: code} typed by the teacher over what was read from the PDF (an OCR
+    # misreading, a missed answer); used instead of the extracted code every time it is graded
+    code_fixes: Mapped[dict] = mapped_column(JSON, default=dict, server_default=text("'{}'"))
 
     assignment: Mapped[Assignment] = relationship(back_populates="submissions")
     student: Mapped[Student] = relationship()
@@ -172,6 +175,7 @@ class ProgramResult(Base):
     score: Mapped[float | None] = mapped_column(Float, nullable=True)  # 0..1
     claimed_status: Mapped[str] = mapped_column(String(30), default="NONE")
     claimed_from_image: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
+    fixed_by_teacher: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false())
     submission: Mapped[Submission] = relationship(back_populates="programs")
     runs: Mapped[list["Run"]] = relationship(back_populates="program", cascade="all, delete-orphan",
                                              order_by="Run.id")

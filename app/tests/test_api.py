@@ -169,3 +169,37 @@ def test_classroom_errors_say_what_google_said(monkeypatch):
     with pytest.raises(ServiceError) as err:
         ClassroomClient(url="http://mcp", token="t").courses()
     assert "has not been used in project" in str(err.value) and "cannot reach" not in str(err.value)
+
+
+def test_teacher_fixes_code_and_it_is_kept(client):
+    """The teacher types the right code over a misread answer: it is graded now and on
+    every later grading, until they go back to the code from the PDF."""
+    login(client)
+    client.post("/api/courses/sync")
+    aid = client.get("/api/courses").json()[0]["assignments"][0]["id"]
+    client.patch(f"/api/assignments/{aid}", json={"time_limit_s": 1.0})
+    client.post(f"/api/assignments/{aid}/grade")
+    run_jobs(client)
+    rows = client.get(f"/api/assignments/{aid}/submissions").json()["rows"]
+    details = [client.get(f"/api/submissions/{r['id']}").json() for r in rows if r["status"] == "GRADED"]
+    good = next(p for d in details for p in d["programs"] if p["question"] == "1" and p["score"] == 1)
+    weak = next(d for d in details if any(p["question"] == "1" and (p["score"] or 0) < 1 for p in d["programs"]))
+    before = weak["final_score"]
+
+    assert client.put(f"/api/submissions/{weak['id']}/code", json={"question": "9", "code": "x"}).status_code == 400
+    job = client.put(f"/api/submissions/{weak['id']}/code", json={"question": "1", "code": good["code"]}).json()
+    assert job["status"] == "queued"
+    run_jobs(client)
+    d = client.get(f"/api/submissions/{weak['id']}").json()
+    q1 = next(p for p in d["programs"] if p["question"] == "1")
+    assert q1["fixed"] and q1["score"] == 1 and d["final_score"] > before
+
+    client.post(f"/api/assignments/{aid}/grade")                       # a full re-grade keeps the fix
+    run_jobs(client)
+    assert next(p for p in client.get(f"/api/submissions/{weak['id']}").json()["programs"]
+                if p["question"] == "1")["fixed"]
+
+    client.put(f"/api/submissions/{weak['id']}/code", json={"question": "1", "code": None})
+    run_jobs(client)
+    d = client.get(f"/api/submissions/{weak['id']}").json()
+    assert not any(p["fixed"] for p in d["programs"]) and d["final_score"] == before

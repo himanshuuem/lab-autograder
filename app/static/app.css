@@ -448,6 +448,9 @@ tr.row:hover .cell { transform: scale(1.08); }
 .code tr.hit td.ln { box-shadow: inset 3px 0 0 var(--mark); opacity: 1; }
 pre.out { background: var(--code-bg); border: 1px solid var(--rule-2); border-radius: var(--r-sm); padding: 9px 11px;
   margin: 5px 0 0; white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow: auto; }
+textarea.code-edit { width: 100%; font: 12.5px/1.55 "JetBrains Mono", ui-monospace, monospace; background: var(--code-bg);
+  color: var(--ink); tab-size: 4; white-space: pre; overflow: auto; resize: vertical; }
+.fix .muted { margin: 8px 0 10px; }
 pre.out .bad { background: var(--fail-soft); color: var(--fail); border-radius: 3px; }
 .runs { width: 100%; border-collapse: collapse; }
 .runs > tbody > tr > td { padding: 10px 0; border-bottom: 1px solid var(--rule-2); vertical-align: top; }

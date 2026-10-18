@@ -459,6 +459,34 @@ def regrade(sid: int, db=DB, user: User = USER):
     return ser_job(j)
 
 
+class CodeFix(BaseModel):
+    question: str = Field(max_length=32)
+    code: str | None = Field(default=None, max_length=100_000)   # None: go back to the extracted code
+
+
+@api.put("/submissions/{sid}/code")
+def fix_code(sid: int, body: CodeFix, db=DB, user: User = USER):
+    """Correct the code of one question by hand (an OCR misreading, an answer the reader
+    missed) and grade the submission again with it."""
+    s = db.get(Submission, sid)
+    _owned(s, s and s.assignment, user, "Submission")
+    if body.question not in {q.label for q in s.assignment.questions}:
+        raise HTTPException(400, f"This assignment has no question {body.question}")
+    fixes = dict(s.code_fixes or {})
+    if body.code is None or not body.code.strip():
+        fixes.pop(body.question, None)
+    else:
+        fixes[body.question] = body.code.replace("\r\n", "\n")
+    s.code_fixes = fixes
+    if j := _active_job(db, s.assignment_id):
+        return ser_job(j)
+    j = Job(kind="grade_one", assignment_id=s.assignment_id, submission_id=sid, user_id=user.id,
+            message="Waiting to start")
+    db.add(j)
+    db.flush()
+    return ser_job(j)
+
+
 @api.get("/jobs/{jid}")
 def job(jid: int, db=DB, user: User = USER):
     j = db.get(Job, jid)
@@ -500,11 +528,13 @@ def submission(sid: int, db=DB, user: User = USER):
             "compile_status": p.compile_status, "compile_output": p.compile_output,
             "tests_passed": p.tests_passed, "tests_total": p.tests_total, "score": p.score,
             "claimed_status": p.claimed_status, "claimed_from_image": bool(p.claimed_from_image),
+            "fixed": bool(p.fixed_by_teacher),
             "runs": [{"id": r.id, "stdin": r.stdin, "expected": r.expected, "hidden": r.hidden,
                       "status": r.status, "stdout": r.stdout, "stderr": r.stderr,
                       "exit_code": r.exit_code, "runtime_ms": r.runtime_ms, "passed": r.passed,
                       "rule": r.rule, "note": r.note}
                      for r in p.runs]} for p in s.programs],
+        "missing": [q.label for q in a.questions if q.label not in {p.question_label for p in s.programs}],
         "similar": [{"id": p.id, "question": p.question_label, "score": p.score, "verdict": p.verdict,
                      "other": (p.sub_b if p.sub_a_id == sid else p.sub_a).student.name} for p in sims],
     }
