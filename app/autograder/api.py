@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 import secrets
 from datetime import datetime, timezone
 
@@ -17,8 +18,8 @@ from .clients import SandboxClient, ServiceError
 from .config import settings
 from .db import SessionLocal
 from .evaluate import MODES
-from .models import (Assignment, Course, Job, ProgramResult, Question, SimilarityPair, Submission,
-                     TestCase, User)
+from .models import (Assignment, Course, Job, ProgramResult, Question, SimilarityPair, Student,
+                     Submission, TestCase, User)
 
 COOKIE = "ag_session"
 MAX_AGE = 12 * 3600
@@ -231,7 +232,7 @@ def ser_sub_row(s: Submission, labels: list[str]) -> dict:
                       "compile": p.compile_status if p else "MISSING",
                       "runs": [r.passed for r in p.runs] if p else [],
                       "statuses": [r.status for r in p.runs] if p else []})
-    return {"id": s.id, "student": {"name": s.student.name, "email": s.student.email},
+    return {"id": s.id, "student": {"id": s.student_id, "name": s.student.name, "email": s.student.email},
             "status": s.status, "state": s.state, "late": s.late, "auto_score": s.auto_score,
             "override_score": s.override_score, "final_score": s.final_score, "flags": s.flags or [],
             "needs_review": s.needs_review, "reviewed": s.reviewed, "strip": strip,
@@ -538,6 +539,37 @@ def submission(sid: int, db=DB, user: User = USER):
         "similar": [{"id": p.id, "question": p.question_label, "score": p.score, "verdict": p.verdict,
                      "other": (p.sub_b if p.sub_a_id == sid else p.sub_a).student.name} for p in sims],
     }
+
+
+def _title_key(title: str):
+    """"Assignment 2" before "Assignment 10"; "Assignment 4- 2nd part" after "Assignment 4"."""
+    return [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", title.lower())]
+
+
+@api.get("/students/{stid}")
+def student(stid: int, db=DB, user: User = USER):
+    """One student across every assignment the teacher can see, next to the class."""
+    st = db.get(Student, stid)
+    subs = [s for s in db.scalars(select(Submission).where(Submission.student_id == stid))
+            if can_see(user, s.assignment.course)] if st else []
+    if not subs:
+        raise HTTPException(404, "Student not found")
+    aids = [s.assignment_id for s in subs]
+    avg = dict(db.execute(
+        select(Submission.assignment_id,
+               func.avg(func.coalesce(Submission.override_score, Submission.auto_score)))
+        .where(Submission.assignment_id.in_(aids), Submission.status == "GRADED")
+        .group_by(Submission.assignment_id)).all())
+    rows = []
+    for s in sorted(subs, key=lambda s: (s.assignment.course.name, _title_key(s.assignment.title))):
+        a = s.assignment
+        rows.append({
+            "submission_id": s.id, "course": a.course.name,
+            "assignment": {"id": a.id, "title": a.title, "max_points": a.max_points, "due": a.due},
+            "status": s.status, "late": s.late, "final_score": s.final_score,
+            "needs_review": s.needs_review and not s.reviewed,
+            "class_avg": round(avg[a.id], 2) if avg.get(a.id) is not None else None})
+    return {"student": {"id": st.id, "name": st.name, "email": st.email}, "rows": rows}
 
 
 class SubmissionPatch(BaseModel):

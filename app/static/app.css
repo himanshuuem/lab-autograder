@@ -756,3 +756,11 @@ kbd { font: 500 11px var(--font); color: var(--ink-3); background: var(--fill-2)
 .role { font-size: 11px; font-weight: 600; padding: 0 8px; border-radius: 999px; background: var(--blue-soft); color: var(--blue-3); }
 .admin-actions { display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap; }
 .login-card p { margin: 0; }
+
+/* a student's score against the class average */
+.vs { position: relative; width: 160px; height: 6px; border-radius: 99px; background: var(--fill-2); }
+.vs i { position: absolute; inset: 0 auto 0 0; border-radius: 99px; background: linear-gradient(90deg, var(--blue), var(--blue-2)); }
+.vs i.low { background: var(--fail); }
+.vs b { position: absolute; top: -4px; width: 2px; height: 14px; margin-left: -1px; border-radius: 1px; background: var(--ink); }
+a.plain { color: inherit; text-decoration: none; }
+a.plain:hover { text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 4px; }

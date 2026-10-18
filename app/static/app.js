@@ -382,6 +382,7 @@ async function render() {
     if (parts[0] === "a") await viewAssignment(+parts[1], parts[2] || "results");
     else if (parts[0] === "s") await viewSubmission(+parts[1], parts[2]);
     else if (parts[0] === "p") await viewPair(+parts[1]);
+    else if (parts[0] === "st") await viewStudent(+parts[1]);
     else if (parts[0] === "status") await viewStatus();
     else if (parts[0] === "admin") await viewAdmin();
     else viewHome();
@@ -957,7 +958,7 @@ async function viewSubmission(id) {
     <div class="crumb"><a href="#/a/${a.id}">${esc(a.title)}</a></div>
     <div class="subhead">
       <div>
-        <h1>${esc(s.student.name)}</h1>
+        <h1><a class="plain" href="#/st/${s.student.id}" title="Every assignment of this student">${esc(s.student.name)}</a></h1>
         <div class="muted small" style="margin-top:6px">${esc(s.student.email)}${s.late ? `, turned in late` : ""}${s.published_grade !== null ? `, ${fmt(s.published_grade)} published to Classroom` : ""}</div>
         <div class="actions" style="margin-top:14px">
           ${s.has_pdf ? `<a class="btn" href="/api/submissions/${s.id}/pdf" target="_blank" rel="noopener">Open PDF</a>` : ""}
@@ -1089,6 +1090,49 @@ async function viewSubmission(id) {
     toast("Feedback copied. Paste it into the private comment in Classroom.");
   };
   $("#note").onchange = (e) => act(null, async () => { await api(`/submissions/${id}`, { method: "PATCH", body: { override_note: e.target.value } }); toast("Note saved."); });
+}
+
+// ------------------------------------------------------------------ student
+// one student across every assignment: who is slipping, who jumped suddenly
+async function viewStudent(id) {
+  const d = await api(`/students/${id}`);
+  const who = person(d.student.name);
+  const rows = d.rows;
+  const pct = (v, max) => (v === null || v === undefined || !max ? null : Math.max(0, Math.min(100, (100 * v) / max)));
+  const scored = rows.filter((r) => r.status !== "ERROR" && r.final_score !== null);
+  const mine = scored.map((r) => pct(r.final_score, r.assignment.max_points));
+  const theirs = scored.filter((r) => r.class_avg !== null).map((r) => pct(r.class_avg, r.assignment.max_points));
+  const mean = (xs) => (xs.length ? xs.reduce((s, x) => s + x, 0) / xs.length : null);
+  const missed = rows.filter((r) => r.status === "NO_SUBMISSION").length;
+  const review = rows.filter((r) => r.needs_review).length;
+  const status = (r) => r.status === "NO_SUBMISSION" ? `<span class="flag">Not submitted</span>`
+    : r.status === "ERROR" && r.final_score === null ? `<span class="flag red">Couldn't grade</span>`
+    : r.needs_review ? `<span class="flag mark">Needs review</span>` : "";
+  view().innerHTML = `
+    <div class="topline"><div class="grow">
+      <div class="crumb">Student</div>
+      <h1>${esc(who.name)}</h1>
+      <div class="muted small" style="margin-top:6px">${who.roll ? `${esc(who.roll)}, ` : ""}${esc(d.student.email)}</div>
+    </div></div>
+    <div class="sheet summary">
+      <div><div class="v">${mean(mine) === null ? "–" : `<span data-count="${mean(mine)}" data-dec="0">${Math.round(mean(mine))}</span>%`}</div><div class="k">average score</div></div>
+      <div><div class="v">${mean(theirs) === null ? "–" : `${Math.round(mean(theirs))}%`}</div><div class="k">class average, same assignments</div></div>
+      <div><div class="v">${rows.length - missed}<span class="muted" style="font-size:15px;font-weight:500"> / ${rows.length}</span></div><div class="k">turned in</div></div>
+      <div class="${review ? "review" : ""}"><div class="v">${review}</div><div class="k">need your review</div></div>
+    </div>
+    <div class="sheet table-wrap"><table class="register student-rows">
+      <thead><tr><th>Assignment</th><th class="num">Score</th><th class="hide-sm">Against the class</th><th class="hide-sm">Status</th></tr></thead>
+      <tbody>${rows.map((r) => {
+        const p = pct(r.final_score, r.assignment.max_points), c = pct(r.class_avg, r.assignment.max_points);
+        const none = r.status === "NO_SUBMISSION" || p === null;
+        return `<tr class="row" data-href="#/s/${r.submission_id}">
+          <td><div class="name">${esc(r.assignment.title)}</div><div class="email">${esc(r.course)}</div></td>
+          <td class="num">${none ? `<span class="qres none">—</span>` : `<span class="score">${fmt(r.final_score)}</span><span class="score"><span class="of"> / ${fmt(r.assignment.max_points)}</span></span>`}</td>
+          <td class="hide-sm">${none ? "" : `<div class="vs" title="${Math.round(p)}%${c !== null ? `; class average ${Math.round(c)}%` : ""}"><i class="${c !== null && p < c - 15 ? "low" : ""}" style="width:${p}%"></i>${c !== null ? `<b style="left:${c}%"></b>` : ""}</div>`}</td>
+          <td class="hide-sm"><span class="status">${status(r)}${r.late ? `<span class="flag blue">Late</span>` : ""}</span></td></tr>`;
+      }).join("")}</tbody></table></div>
+    <p class="muted small">The bar is this student's score; the white mark is the class average. A red bar is 15 points or more below the class.</p>`;
+  rowLinks();
 }
 
 // ------------------------------------------------------------------ status

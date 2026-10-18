@@ -203,3 +203,21 @@ def test_teacher_fixes_code_and_it_is_kept(client):
     run_jobs(client)
     d = client.get(f"/api/submissions/{weak['id']}").json()
     assert not any(p["fixed"] for p in d["programs"]) and d["final_score"] == before
+
+
+def test_student_page_across_assignments(client):
+    login(client)
+    client.post("/api/courses/sync")
+    aid = client.get("/api/courses").json()[0]["assignments"][0]["id"]
+    client.patch(f"/api/assignments/{aid}", json={"time_limit_s": 1.0})
+    client.post(f"/api/assignments/{aid}/grade")
+    run_jobs(client)
+    rows = client.get(f"/api/assignments/{aid}/submissions").json()["rows"]
+    ananya = next(r for r in rows if r["student"]["name"] == "Ananya Bose")
+    d = client.get(f"/api/students/{ananya['student']['id']}").json()
+    assert d["student"]["name"] == "Ananya Bose"
+    (row,) = d["rows"]
+    graded = [r["final_score"] for r in rows if r["status"] == "GRADED"]
+    assert row["submission_id"] == ananya["id"] and row["final_score"] == ananya["final_score"]
+    assert row["class_avg"] == pytest.approx(sum(graded) / len(graded), abs=0.01)
+    assert client.get("/api/students/99999").status_code == 404
