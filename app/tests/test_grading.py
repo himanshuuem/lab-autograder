@@ -306,6 +306,27 @@ def test_unchanged_submissions_are_not_downloaded_again(graded):
     assert cc.calls == 3
 
 
+def test_regression_check_reports_scores_that_went_down(graded, capsys):
+    import json
+    from autograder import regress
+    _, a, _, _ = graded
+    assert regress.save(a.id) == 0
+    assert regress.check(a.id, 2, LocalSandbox()) == 0          # same code, same scores
+    out = capsys.readouterr().out
+    assert "0 went up, 0 went down" in out
+    base = json.load(open(regress._path()))
+    sid = next(k for k, v in base.items() if v["status"] == "GRADED" and (v["score"] or 0) < 100)
+    real = base[sid]["score"]
+    base[sid]["score"] = 100.0                                  # as if it scored more before a change
+    json.dump(base, open(regress._path(), "w"))
+    assert regress.check(a.id, 2, LocalSandbox()) == 1
+    out = capsys.readouterr().out
+    assert "1 went down" in out and "→" in out
+    from autograder.models import Submission
+    with session_scope() as db:                                 # nothing was saved
+        assert db.get(Submission, int(sid)).auto_score == real
+
+
 def test_migration_adds_new_columns(tmp_path):
     from sqlalchemy import create_engine, inspect
     from autograder.db import Base, _add_missing_columns

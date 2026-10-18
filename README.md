@@ -288,10 +288,12 @@ after editing them.
 |---|---|
 | `make up` | create `.env` if missing, build everything, start the dashboard |
 | `make smoke` | end-to-end check of the running stack; in Google mode it only checks your courses load (`make smoke ARGS=--grade` also grades the first assignment) |
-| `make test` | every unit test, inside a container (about 250 tests) |
+| `make test` | every unit test, inside a container (about 450 tests) |
 | `make test-docker` | real sandbox isolation tests against your Docker |
 | `make logs` / `make ps` | follow logs / list services |
 | `make backup` | PostgreSQL dump into `backups/` |
+| `make regress-save` | remember every submission's current score (do this before changing the extractor or the grader) |
+| `make regress` | grade every downloaded submission again **without saving** and list the scores that moved; exits 1 if any went down |
 | `make down` | stop (data is kept) |
 | `make clean` | stop and **delete all data** |
 

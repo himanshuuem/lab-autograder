@@ -4,7 +4,7 @@ COMPOSE := docker compose
 -include .env
 export
 
-.PHONY: help init images build up down restart logs ps test test-docker smoke up-ci down-ci google-auth backup clean
+.PHONY: help init images build up down restart logs ps test test-docker smoke up-ci down-ci google-auth backup clean regress regress-save
 
 help:
 	@echo "make init         create .env with random passwords (once)"
@@ -14,6 +14,7 @@ help:
 	@echo "make test-docker  real sandbox isolation tests (needs 'make images')"
 	@echo "make up-ci        also start Jenkins"
 	@echo "make google-auth  connect your Google account (run on your own computer)"
+	@echo "make regress-save before changing the extractor or grader; make regress after"
 	@echo "make logs / ps / down / backup"
 
 init:
@@ -64,6 +65,12 @@ down-ci:
 google-auth:
 	python3 -m pip install --user --quiet google-auth-oauthlib google-api-python-client
 	python3 scripts/google_auth.py
+
+regress-save:  ## remember every submission's score, before changing the extractor or grader
+	$(COMPOSE) exec -T app python -m autograder.regress save
+
+regress:  ## grade everything again without saving and list the scores that moved
+	$(COMPOSE) exec -T app python -m autograder.regress check
 
 backup:
 	@mkdir -p backups
