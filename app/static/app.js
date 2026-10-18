@@ -120,6 +120,7 @@ const FLAGS = {
   POSSIBLE_FABRICATED_OUTPUT: ["shown output not produced by code", "mark"],
   OCR_USED: ["Scanned PDF", "mark"],
   EXTRACTION_REVIEW: ["check extracted code", "mark"],
+  OCR_REVIEW: ["check OCR'd code", "mark"],
   UNKNOWN_LANGUAGE: ["language unknown", "mark"],
   NO_TESTS: ["no tests", ""],
   SIMILAR_CODE: ["similar code", "mark"],

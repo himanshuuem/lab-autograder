@@ -199,6 +199,7 @@ def test_ocr_code_that_passes_everything_needs_no_review(graded, monkeypatch):
         monkeypatch.setattr(grading, "extract_submission", fake(good.pdf_path, broken))
         grading.grade_submission(db, LocalSandbox(), good)
         assert good.needs_review and ("OCR_USED", None) in codes(good)
+        assert ("OCR_REVIEW", progs[0].question) in codes(good)
     finally:
         db.rollback()
         db.close()

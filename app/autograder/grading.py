@@ -611,6 +611,11 @@ def grade_submission(db, sb: SandboxClient, sub: Submission) -> None:
         return pr.tests_total > 0 and pr.tests_passed == pr.tests_total
     doubtful = {pr.question_label for pr in uncertain if not passed_all(pr)}
     flags = [f for f in flags if f["code"] != "EXTRACTION_REVIEW" or f["q"] in doubtful]
+    for pr in uncertain:
+        if pr.ocr and pr.question_label in doubtful:
+            flags.append(flag("OCR_REVIEW", pr.question_label,
+                              "Read from a screenshot and fails a test: compare it with the PDF, "
+                              "and use Fix code if a character was misread"))
     if doubtful:
         sub.needs_review = True
     missing = any(f["code"] == "MISSING_QUESTION" for f in flags)
