@@ -264,6 +264,48 @@ def test_download_failure_keeps_the_earlier_copy(graded):
         assert notes == ["Car.java: download failed (Classroom: Unable to find the server at www.googleapis.com)"]
 
 
+def test_unchanged_submissions_are_not_downloaded_again(graded):
+    from autograder.models import Course, Submission
+
+    class CC:
+        updated, calls = "2026-09-01T10:00:00Z", 0
+
+        def submissions(self, c, w):
+            return [{"id": "z1", "student": {"id": "u-same", "name": "Noor"}, "state": "TURNED_IN",
+                     "update_time": self.updated, "files": [{"file_id": "n1", "title": "Main.java"}]},
+                    {"id": "z2", "student": {"id": "u-none", "name": "Omar"}, "state": "CREATED",
+                     "update_time": self.updated, "files": []}]
+
+        def download(self, fid):
+            self.calls += 1
+            return "Main.java", b'public class Main { public static void main(String[] a) { } }'
+
+    with session_scope() as db:
+        c = Course(ext_id="same-test", name="C")
+        db.add(c)
+        db.flush()
+        a = Assignment(course_id=c.id, ext_id="w", title="A")
+        db.add(a)
+        db.flush()
+        aid = a.id
+    cc = CC()
+    sid, _ = grading.sync_submissions(aid, cc)
+    assert cc.calls == 1
+    with session_scope() as db:
+        first = db.get(Submission, sid).pdf_path
+        assert db.get(Submission, sid).source_updated == cc.updated
+    grading.sync_submissions(aid, cc)                              # nothing changed in Classroom
+    assert cc.calls == 1
+    with session_scope() as db:
+        s = db.get(Submission, sid)
+        assert s.pdf_path == first and not s.error and s.files[0]["kind"] == "text"
+    grading.sync_submissions(aid, cc, fresh=True)                  # the teacher asked for everything
+    assert cc.calls == 2
+    cc.updated = "2026-09-02T08:00:00Z"                            # the student changed their work
+    grading.sync_submissions(aid, cc)
+    assert cc.calls == 3
+
+
 def test_migration_adds_new_columns(tmp_path):
     from sqlalchemy import create_engine, inspect
     from autograder.db import Base, _add_missing_columns

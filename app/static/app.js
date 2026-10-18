@@ -891,7 +891,17 @@ function renderSettings(el, a) {
     <label class="field"><span>Starter code you gave students</span><textarea name="starter_code" rows="6" placeholder="Paste any template code here so it isn't counted as copying">${esc(a.starter_code)}</textarea></label>
     <button class="btn primary" type="submit">Save settings</button>
     <span class="muted small" style="margin-left:10px">Settings apply the next time you grade.</span>
-  </form>`;
+  </form>
+  <div class="sheet pad" style="max-width:720px;margin-top:16px">
+    <b>Download every file again</b>
+    <p class="muted small" style="margin:6px 0 12px">Grading again only downloads what students changed in Classroom since the last time. Use this if a file was edited in Drive without the student turning it in again.</p>
+    <button class="btn" id="fresh">Download and grade everything</button>
+  </div>`;
+  $("#fresh").onclick = (e) => act(e.target, async () => {
+    const j = await api(`/assignments/${a.id}/grade?fresh=true`, { method: "POST" });
+    location.hash = `#/a/${a.id}/results`;
+    setTimeout(() => showJob(j, a.id), 300);
+  });
   $("#settings").onsubmit = (e) => { e.preventDefault(); act(null, async () => {
     const f = new FormData(e.target);
     await api(`/assignments/${a.id}`, { method: "PATCH", body: {

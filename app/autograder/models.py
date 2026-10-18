@@ -140,6 +140,9 @@ class Submission(Base):
     graded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     published_grade: Mapped[float | None] = mapped_column(Float, nullable=True)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Classroom's updateTime when the files were last downloaded in full: the same time next
+    # sync means nothing changed, so the saved PDF is graded without downloading again
+    source_updated: Mapped[str] = mapped_column(String(40), default="", server_default=text("''"))
 
     assignment: Mapped[Assignment] = relationship(back_populates="submissions")
     student: Mapped[Student] = relationship()

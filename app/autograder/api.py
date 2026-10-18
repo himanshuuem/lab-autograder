@@ -434,11 +434,13 @@ def _active_job(db, aid):
 
 
 @api.post("/assignments/{aid}/grade")
-def grade(aid: int, db=DB, user: User = USER):
+def grade(aid: int, fresh: bool = False, db=DB, user: User = USER):
+    """`fresh`: download every file again, even ones Classroom reports unchanged."""
     _assignment(db, aid, user)
     if j := _active_job(db, aid):
         return ser_job(j)
-    j = Job(kind="grade", assignment_id=aid, user_id=user.id, message="Waiting to start")
+    j = Job(kind="grade_fresh" if fresh else "grade", assignment_id=aid, user_id=user.id,
+            message="Waiting to start")
     db.add(j)
     db.flush()
     return ser_job(j)

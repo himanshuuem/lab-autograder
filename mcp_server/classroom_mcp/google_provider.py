@@ -144,6 +144,7 @@ class GoogleProvider(Provider):
             out.append({
                 "id": s["id"], "student": stu, "state": s.get("state", ""),
                 "late": bool(s.get("late")),
+                "update_time": s.get("updateTime", ""),     # changes when the student changes anything
                 "files": _files(s.get("assignmentSubmission", {}).get("attachments")),
                 "assigned_grade": s.get("assignedGrade"), "draft_grade": s.get("draftGrade"),
             })

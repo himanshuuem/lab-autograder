@@ -420,6 +420,7 @@ class DemoProvider(Provider):
                 "student": {"id": sid, "name": name, "email": f"{roll.lower()}@students.iiests.ac.in"},
                 "state": "CREATED" if missing else "TURNED_IN",
                 "late": sid == "s07",
+                "update_time": "2026-09-01T10:00:00Z",
                 "files": [{"file_id": fid, "title": self._files[fid][0], "link": ""} for fid in self._attached[sid]],
                 "assigned_grade": self.grades.get(f"sub-{sid}", {}).get("assigned"),
                 "draft_grade": self.grades.get(f"sub-{sid}", {}).get("draft"),

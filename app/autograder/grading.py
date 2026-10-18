@@ -108,9 +108,11 @@ def _pick_pdf(files: list[dict]) -> dict | None:
 MAX_ATTACHMENTS = 30   # some students attach one file per question, 12+ files
 
 
-def sync_submissions(assignment_id: int, cc: ClassroomClient, progress=None) -> list[int]:
+def sync_submissions(assignment_id: int, cc: ClassroomClient, progress=None, fresh: bool = False) -> list[int]:
     """Fetch every submission and its PDF. Each student is saved as soon as
-    their file is downloaded, so progress is visible and partial work survives."""
+    their file is downloaded, so progress is visible and partial work survives.
+    A submission Classroom reports unchanged since its last full download is not
+    downloaded again (unless `fresh`)."""
     with session_scope() as db:
         a = db.get(Assignment, assignment_id)
         course_ext, assign_ext = a.course.ext_id, a.ext_id
@@ -127,7 +129,14 @@ def sync_submissions(assignment_id: int, cc: ClassroomClient, progress=None) -> 
         pdf_path, pdf_file_id, error = None, None, ""
         got, notes = [], []
         failed = False
-        for f in files:
+        updated = s.get("update_time") or ""
+        same = None if fresh or not updated else _earlier_copy(assignment_id, st["id"], files, updated)
+        if same:
+            pdf_path, pdf_file_id, kinds = same
+            for f in files:
+                f["kind"] = kinds.get(f.get("file_id"))
+            log.info("  %d/%d %s: unchanged in Classroom, not downloaded again", n, len(subs), st["name"])
+        for f in files if not same else []:
             try:
                 t0 = time.monotonic()
                 title, data = cc.download(f["file_id"])
@@ -163,6 +172,7 @@ def sync_submissions(assignment_id: int, cc: ClassroomClient, progress=None) -> 
         if not pdf_path and files:
             error = "; ".join(notes) or "no readable file"
         file_notes = notes
+        complete = updated if (same or (not failed and (pdf_path or not files))) else ""
         with session_scope() as db:
             stu = db.scalar(select(Student).where(Student.ext_id == st["id"]))
             if not stu:
@@ -180,6 +190,7 @@ def sync_submissions(assignment_id: int, cc: ClassroomClient, progress=None) -> 
             if file_notes:
                 sub.files = sub.files + [{"note": x} for x in file_notes]
             sub.pdf_path, sub.pdf_file_id, sub.error = pdf_path, pdf_file_id, error
+            sub.source_updated = complete
             db.flush()
             ids.append(sub.id)
     if progress:
@@ -187,13 +198,18 @@ def sync_submissions(assignment_id: int, cc: ClassroomClient, progress=None) -> 
     return ids
 
 
-def _earlier_copy(assignment_id: int, student_ext: str, files: list[dict]):
+def _earlier_copy(assignment_id: int, student_ext: str, files: list[dict], updated: str | None = None):
     """(pdf_path, pdf_file_id, {file_id: kind}) of the last download of exactly these
     files, when it is still on disk; None otherwise (a student who changed their
-    files is not graded on the old ones)."""
+    files is not graded on the old ones). With `updated`, only a full download made
+    when Classroom reported that same update time counts."""
     with session_scope() as db:
         sub = db.scalar(select(Submission).join(Student).where(
             Submission.assignment_id == assignment_id, Student.ext_id == student_ext))
+        if updated is not None and (sub is None or sub.source_updated != updated):
+            return None
+        if updated is not None and not files and sub.status != "ERROR":
+            return None, None, {}                    # nothing attached, then and now
         if not sub or not sub.pdf_path or not os.path.exists(sub.pdf_path):
             return None
         before = [f for f in sub.files or [] if f.get("file_id")]
@@ -655,9 +671,12 @@ def run_grade_job(job_id: int, cc: ClassroomClient | None = None, sb: SandboxCli
             from .models import User
             cc = (classroom(db.get(User, job.user_id) if job.user_id else None, a.course) if classroom
                   else ClassroomClient())
-        if kind == "grade" and not a.tests_imported and a.materials:
+        if kind in ("grade", "grade_fresh") and not a.tests_imported and a.materials:
             _set_job(job_id, message="Reading test cases from the assignment PDF")
             import_tests(db, cc, a)
+    fresh = kind == "grade_fresh"
+    if fresh:
+        kind = "grade"
     if kind == "grade":
         _set_job(job_id, progress=0, total=0, message="Asking Google Classroom for the list of submissions")
 
@@ -665,7 +684,7 @@ def run_grade_job(job_id: int, cc: ClassroomClient | None = None, sb: SandboxCli
             _set_job(job_id, progress=done, total=total,
                      message=f"Downloading {done + 1} of {total}: {name}" if name else
                      f"Downloaded {total} submission(s)")
-        ids = sync_submissions(aid, cc, fetched)
+        ids = sync_submissions(aid, cc, fetched, fresh=fresh)
     else:
         ids = [sid]
     _set_job(job_id, progress=0, total=len(ids) + 1, message=f"Running {len(ids)} submission(s) in the sandbox")
