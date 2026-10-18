@@ -126,6 +126,7 @@ def sync_submissions(assignment_id: int, cc: ClassroomClient, progress=None) -> 
         files = (s.get("files") or [])[:MAX_ATTACHMENTS]
         pdf_path, pdf_file_id, error = None, None, ""
         got, notes = [], []
+        failed = False
         for f in files:
             try:
                 t0 = time.monotonic()
@@ -134,8 +135,19 @@ def sync_submissions(assignment_id: int, cc: ClassroomClient, progress=None) -> 
                 log.info("  %d/%d %s: %s (%d KB, %.1fs)", n, len(subs), st["name"], f.get("title"),
                          len(data) // 1024, time.monotonic() - t0)
             except ServiceError as e:
+                failed = True
                 notes.append(f"{f.get('title')}: download failed ({e})")
                 log.warning("  %d/%d %s: %s download failed: %s", n, len(subs), st["name"], f.get("title"), e)
+        earlier = _earlier_copy(assignment_id, st["id"], files) if failed else None
+        if earlier:
+            # a network blip must not turn a graded answer into a zero: grade the copy of
+            # the same files downloaded last time, and say so
+            pdf_path, pdf_file_id, kinds = earlier
+            for f in files:
+                f["kind"] = kinds.get(f.get("file_id"))
+            notes = ["Couldn't download from Classroom just now; graded the copy downloaded earlier"]
+            log.warning("  %d/%d %s: using the earlier download", n, len(subs), st["name"])
+            got = []
         if got:
             b = bundle(got)
             notes += b.errors
@@ -173,6 +185,21 @@ def sync_submissions(assignment_id: int, cc: ClassroomClient, progress=None) -> 
     if progress:
         progress(len(subs), len(subs), "")
     return ids
+
+
+def _earlier_copy(assignment_id: int, student_ext: str, files: list[dict]):
+    """(pdf_path, pdf_file_id, {file_id: kind}) of the last download of exactly these
+    files, when it is still on disk; None otherwise (a student who changed their
+    files is not graded on the old ones)."""
+    with session_scope() as db:
+        sub = db.scalar(select(Submission).join(Student).where(
+            Submission.assignment_id == assignment_id, Student.ext_id == student_ext))
+        if not sub or not sub.pdf_path or not os.path.exists(sub.pdf_path):
+            return None
+        before = [f for f in sub.files or [] if f.get("file_id")]
+        if {f["file_id"] for f in before} != {f.get("file_id") for f in files}:
+            return None
+        return sub.pdf_path, sub.pdf_file_id, {f["file_id"]: f.get("kind") for f in before}
 
 
 # ------------------------------------------------------------------ grade one

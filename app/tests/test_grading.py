@@ -214,6 +214,56 @@ def test_unreadable_attachment(graded):
         assert s.flags[0]["code"] == "UNREADABLE_FILE"
 
 
+def test_download_failure_keeps_the_earlier_copy(graded):
+    """A network blip during a re-grade grades the copy downloaded last time instead of
+    turning the answer into a zero; a student who changed their files is not graded on
+    the old ones."""
+    from autograder.clients import ServiceError
+    from autograder.models import Course, Submission
+
+    class CC:
+        fail, files = False, [{"file_id": "m1", "title": "Main.java"}, {"file_id": "m2", "title": "Car.java"}]
+
+        def submissions(self, c, w):
+            return [{"id": "y1", "student": {"id": "u-blip", "name": "Ira"}, "state": "TURNED_IN",
+                     "files": [dict(f) for f in self.files]}]
+
+        def download(self, fid):
+            if self.fail and fid == "m2":
+                raise ServiceError("Classroom: Unable to find the server at www.googleapis.com")
+            return "x.java", b'public class Main { public static void main(String[] a) { System.out.println("hi"); } }'
+
+    with session_scope() as db:
+        c = Course(ext_id="blip-test", name="C")
+        db.add(c)
+        db.flush()
+        a = Assignment(course_id=c.id, ext_id="w", title="A")
+        db.add(a)
+        db.flush()
+        aid = a.id
+    cc = CC()
+    (sid,) = grading.sync_submissions(aid, cc)
+    with session_scope() as db:
+        first = db.get(Submission, sid).pdf_path
+        assert first and not db.get(Submission, sid).error
+    before = open(first, "rb").read()
+
+    cc.fail = True
+    grading.sync_submissions(aid, cc)
+    with session_scope() as db:
+        s = db.get(Submission, sid)
+        assert s.pdf_path == first and not s.error
+        assert open(first, "rb").read() == before            # not overwritten by a partial copy
+        assert any("downloaded earlier" in f.get("note", "") for f in s.files)
+
+    cc.files = cc.files + [{"file_id": "m3", "title": "New.java"}]
+    grading.sync_submissions(aid, cc)
+    with session_scope() as db:
+        s = db.get(Submission, sid)
+        notes = [f["note"] for f in s.files if "note" in f]
+        assert notes == ["Car.java: download failed (Classroom: Unable to find the server at www.googleapis.com)"]
+
+
 def test_migration_adds_new_columns(tmp_path):
     from sqlalchemy import create_engine, inspect
     from autograder.db import Base, _add_missing_columns

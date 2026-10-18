@@ -971,7 +971,8 @@ async function viewSubmission(id) {
       ${s.flags.map((f) => `<li>${flagChip(f)} <span class="small muted">${esc(f.msg)}</span></li>`).join("")}
       ${s.similar.map((p) => `<li><a href="#/p/${p.id}">Compare with ${esc(p.other)}</a> <span class="small muted">Question ${esc(p.question)}, ${Math.round(p.score * 100)}%${p.verdict ? `, ${p.verdict === "cleared" ? "marked fine" : "copying confirmed"}` : ""}</span></li>`).join("")}
     </ul></div>` : ""}
-    ${(s.files || []).length ? `<p class="muted small">Submitted: ${s.files.map((f) => `${esc(f.title)}${f.kind ? ` (${esc(KIND[f.kind] || f.kind)})` : ""}`).join(", ")}${ex.images_read ? `. Read ${ex.images_read} screenshot${ex.images_read > 1 ? "s" : ""} by OCR` : ""}.${s.has_pdf && s.files.some((f) => f.kind && f.kind !== "pdf") ? " Open PDF shows the files converted and merged." : ""}</p>` : ""}
+    ${(s.files || []).filter((f) => f.note).map((f) => `<p class="small" style="color:var(--mark-ink)">${esc(f.note)}</p>`).join("")}
+    ${(s.files || []).filter((f) => f.title).length ? `<p class="muted small">Submitted: ${s.files.filter((f) => f.title).map((f) => `${esc(f.title)}${f.kind ? ` (${esc(KIND[f.kind] || f.kind)})` : ""}`).join(", ")}${ex.images_read ? `. Read ${ex.images_read} screenshot${ex.images_read > 1 ? "s" : ""} by OCR` : ""}.${s.has_pdf && s.files.some((f) => f.kind && f.kind !== "pdf") ? " Open PDF shows the files converted and merged." : ""}</p>` : ""}
     ${ex.repairs && Object.keys(ex.repairs).length ? `<p class="muted small">While reading the submission: ${esc(repairText(ex.repairs))}.</p>` : ""}
     ${(ex.warnings || []).length ? `<p class="muted small">${ex.warnings.map(esc).join(" ")}</p>` : ""}
     <div id="programs"></div>
