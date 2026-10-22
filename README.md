@@ -3,6 +3,12 @@
 Auto-grading for programming assignments submitted as PDFs in Google Classroom.
 Built for TAs grading B.Tech lab work (C, C++, Python, Java).
 
+[![Lab Grader in 17 seconds: grade a whole class, review results, and catch copied code. Click for the full 6-minute narrated walkthrough.](docs/demo/preview.gif)](docs/demo/lab-grader-walkthrough.mp4)
+
+<!-- INLINE-VIDEO: paste the github.com/user-attachments/assets/... link GitHub gives you
+     when you drag lab-grader-walkthrough.mp4 into this file in the web editor, on its own
+     line right here, then delete this comment. -->
+
 For every student, it:
 
 1. **fetches everything they turned in** through a Google Classroom MCP server: PDFs, Word files, Google Docs, screenshots and code files, converted and merged into one document;
