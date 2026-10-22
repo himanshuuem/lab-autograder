@@ -14,6 +14,8 @@ For every student, it:
 
 Nothing is changed in Classroom until you press **Publish grades**.
 
+**Walkthrough video:** [docs/demo/lab-grader-walkthrough.mp4](docs/demo/lab-grader-walkthrough.mp4), a 6-minute narrated tour of every screen.
+
 ---
 
 ## Quick start (demo data, no Google account needed)
