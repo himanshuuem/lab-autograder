@@ -5,8 +5,9 @@ Built for TAs grading B.Tech lab work (C, C++, Python, Java).
 
 [![Lab Grader in 17 seconds: grade a whole class, review results, and catch copied code. Click for the full 6-minute narrated walkthrough.](docs/demo/preview.gif)](docs/demo/lab-grader-walkthrough.mp4)
 
+**Full walkthrough (6 min, narrated):**
 
-docs/demo/lab-grader-walkthrough.mp4 
+https://github.com/user-attachments/assets/2f30b3af-d2ca-4bcd-9823-125c74e022cc
 
 For every student, it:
 
