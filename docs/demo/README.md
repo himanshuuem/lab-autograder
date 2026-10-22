@@ -20,3 +20,13 @@ To record it again after the UI changes:
 5. `python3 music.py 383` writes `music.wav`. Mix it under the voice with ffmpeg's
    `sidechaincompress` so it drops while the narrator speaks.
 6. `docker compose -p lgdemo down -v`
+7. Rebuild `preview.gif`, the 17-second loop at the top of the main README (title, grading,
+   automatic code repair, similarity check). Adjust the `trim` times if the scenes move:
+   ```bash
+   ffmpeg -i lab-grader-walkthrough.mp4 -filter_complex \
+     "[0:v]trim=0.6:3.6,setpts=PTS-STARTPTS[a];[0:v]trim=181:186.5,setpts=PTS-STARTPTS[b];\
+   [0:v]trim=283:287.5,setpts=PTS-STARTPTS[c];[0:v]trim=300:304.5,setpts=PTS-STARTPTS[d];\
+   [a][b][c][d]concat=n=4:v=1:a=0,fps=10,scale=880:-1:flags=lanczos,split[x][y];\
+   [x]palettegen=max_colors=128:stats_mode=diff[p];[y][p]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle" \
+     -loop 0 preview.gif
+   ```
